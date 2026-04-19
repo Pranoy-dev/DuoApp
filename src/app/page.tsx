@@ -1,19 +1,15 @@
 "use client";
 
+import { useAuth } from "@clerk/nextjs";
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useStore } from "@/lib/store";
 
-export default function RootRedirect() {
-  const router = useRouter();
-  const { state, ready } = useStore();
+const clerkPk = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim();
+const signInPath =
+  process.env.NEXT_PUBLIC_CLERK_SIGN_IN_URL?.trim() || "/sign-in";
 
-  useEffect(() => {
-    if (!ready) return;
-    if (!state.me) router.replace("/onboarding");
-    else router.replace("/today");
-  }, [ready, state.me, router]);
-
+function LoadingDuo() {
   return (
     <div className="flex h-full flex-1 items-center justify-center">
       <div className="flex items-center gap-3 text-muted-foreground">
@@ -25,4 +21,45 @@ export default function RootRedirect() {
       </div>
     </div>
   );
+}
+
+/** Local-only mode: no Clerk; profile lives in localStorage. */
+function LocalRootRedirect() {
+  const router = useRouter();
+  const { state, ready } = useStore();
+
+  useEffect(() => {
+    if (!ready) return;
+    if (!state.me) router.replace("/onboarding");
+    else router.replace("/today");
+  }, [ready, state.me, router]);
+
+  return <LoadingDuo />;
+}
+
+/**
+ * With Clerk configured, wait for session before sending anonymous users to
+ * onboarding (onboarding is for Duo profile setup after sign-in).
+ */
+function ClerkRootRedirect() {
+  const router = useRouter();
+  const { state, ready } = useStore();
+  const { isLoaded, userId } = useAuth();
+
+  useEffect(() => {
+    if (!ready) return;
+    if (!isLoaded) return;
+    if (!userId) {
+      router.replace(signInPath);
+      return;
+    }
+    if (!state.me) router.replace("/onboarding");
+    else router.replace("/today");
+  }, [ready, state.me, router, isLoaded, userId]);
+
+  return <LoadingDuo />;
+}
+
+export default function RootRedirect() {
+  return clerkPk ? <ClerkRootRedirect /> : <LocalRootRedirect />;
 }
