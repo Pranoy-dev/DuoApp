@@ -1,10 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import { getServiceSupabase } from "@/lib/server/supabase-admin";
-import {
-  serverDeferredSnapshotSyncEnabled,
-  serverDuoCloudDataEnabled,
-  serverInvitePairingEnabled,
-} from "@/lib/duo-cloud";
+import { serverDuoServiceStackConfigured } from "@/lib/duo-cloud";
 
 export class DuoActionError extends Error {
   constructor(
@@ -17,11 +13,7 @@ export class DuoActionError extends Error {
 }
 
 export async function requireClerkUserId(): Promise<string> {
-  if (
-    !serverDuoCloudDataEnabled() &&
-    !serverDeferredSnapshotSyncEnabled() &&
-    !serverInvitePairingEnabled()
-  ) {
+  if (!serverDuoServiceStackConfigured()) {
     throw new DuoActionError("Cloud data is not configured", "not_configured");
   }
   const { userId } = await auth();

@@ -130,7 +130,8 @@ export function computeDeferredHybridCoupleServerEnabled(
 /**
  * Use Supabase Server Actions for provision / create couple / join (so invite
  * codes exist in `invites` for the other device). True for live cloud, hybrid
- * deferred, or {@link DuoRuntimePublicEnv.duoServerInvites} only.
+ * deferred, explicit server-invites flag, or whenever Clerk + public Supabase
+ * URL are set (the host must also expose the Supabase service role + Clerk secret).
  */
 export function computeServerCoupleActionsEnabled(
   env: DuoRuntimePublicEnv,
@@ -138,5 +139,6 @@ export function computeServerCoupleActionsEnabled(
   if (computeDuoCloudClientConfigured(env)) return true;
   const clerk = Boolean(env.clerkPublishableKey.trim());
   if (!clerk || env.duoUseServerData) return false;
-  return Boolean(env.duoDeferredSnapshotSync || env.duoServerInvites);
+  if (env.duoDeferredSnapshotSync || env.duoServerInvites) return true;
+  return Boolean(env.supabaseUrl.trim());
 }

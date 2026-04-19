@@ -423,7 +423,7 @@ function StoreProviderCore({
           }
           if (r.code === "not_configured") {
             throw new Error(
-              "Server pairing is not set up. Use the same env as your partner (Clerk + Supabase service role, and NEXT_PUBLIC_DUO_SERVER_INVITES=1 or deferred/cloud flags).",
+              "Server could not load Duo’s database. On the host (e.g. Vercel), set NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and CLERK_SECRET_KEY, then redeploy.",
             );
           }
           throw new Error(r.message);
