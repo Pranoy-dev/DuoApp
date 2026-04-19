@@ -1,6 +1,6 @@
 "use client";
 
-import { UserButton } from "@clerk/nextjs";
+import { UserButton, useAuth } from "@clerk/nextjs";
 import { useMemo, useState } from "react";
 import { Copy, Share2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -22,6 +22,7 @@ import { QUOTE_TONES } from "@/lib/quotes";
 import type { QuoteTone } from "@/lib/types";
 
 export default function SettingsPage() {
+  const { userId } = useAuth();
   const duoRuntime = useDuoRuntimeEnv();
   const duoCloudActive = computeDuoCloudClientConfigured(duoRuntime);
   const deferredSnapshot =
@@ -229,9 +230,15 @@ export default function SettingsPage() {
                         try {
                           const joined = await joinCouple(raw);
                           if (!joined) {
-                            toast.error(
-                              "That code did not work. Check the code or ask your partner to copy it again from Settings.",
-                            );
+                            if (clerkConfigured && !userId) {
+                              toast.error(
+                                "Sign in on this device, then paste your partner’s code again.",
+                              );
+                            } else {
+                              toast.error(
+                                "That code did not work. Check the code or ask your partner to copy it again from Settings.",
+                              );
+                            }
                             return;
                           }
                           setPartnerCode("");

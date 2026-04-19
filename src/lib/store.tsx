@@ -258,7 +258,13 @@ function DuoCloudForegroundRefresh({
   return null;
 }
 
-export function StoreProvider({ children }: { children: React.ReactNode }) {
+function StoreProviderCore({
+  children,
+  clerkUserId,
+}: {
+  children: React.ReactNode;
+  clerkUserId: string | null;
+}) {
   const duoRuntime = useDuoRuntimeEnv();
   const duoCloudActive = computeDuoCloudClientConfigured(duoRuntime);
   const serverCoupleActionsEnabled =
@@ -393,65 +399,44 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   ]);
 
   const joinCouple = useCallback(
-    async (code: string, partner?: Partial<Person>) => {
-      if (serverCoupleActionsEnabled) {
-        const r = await duoActions.joinCoupleAction(code);
-        if (!r.ok) throw new Error(r.message);
-        applyRemoteState(r.data);
-        if (duoRuntime.duoDeferredSnapshotSync && !duoCloudActive) {
-          requestDeferredSnapshotFlushSoon();
+    async (code: string, _partner?: Partial<Person>) => {
+      const normalized = code.trim().toUpperCase();
+      if (!normalized) return null;
+
+      if (clerkUserId) {
+        const r = await duoActions.joinCoupleAction(normalized);
+        if (r.ok && r.data) {
+          applyRemoteState(r.data);
+          if (duoRuntime.duoDeferredSnapshotSync && !duoCloudActive) {
+            requestDeferredSnapshotFlushSoon();
+          }
+          return r.data.couple;
         }
-        return r.data.couple;
+        if (!r.ok) {
+          if (r.code === "not_found") {
+            if (r.message.includes("Profile not provisioned")) {
+              throw new Error(
+                "Finish your profile on this device first, then try the invite code again.",
+              );
+            }
+            return null;
+          }
+          if (r.code === "not_configured") {
+            throw new Error(
+              "Server pairing is not set up. Use the same env as your partner (Clerk + Supabase service role, and NEXT_PUBLIC_DUO_SERVER_INVITES=1 or deferred/cloud flags).",
+            );
+          }
+          throw new Error(r.message);
+        }
       }
-      let next: Couple | null = null;
-      setState((s) => {
-        if (!s.me) return s;
-        const normalized = code.trim().toUpperCase();
-        const existing = s.couple;
-        if (existing && existing.members.length >= 2) return s;
-        if (existing && existing.inviteCode === normalized) {
-          next = existing;
-          return s;
-        }
-        const createdAt = new Date().toISOString();
-        const partnerPerson: Person = {
-          id: uid("u"),
-          name: partner?.name ?? "Partner",
-          emoji: partner?.emoji ?? "🌙",
-          tone: partner?.tone ?? s.me.tone,
-          graceEnabled: true,
-          streakRevivesRemaining: 3,
-          streakRevivesNextRefillAt: addDays(new Date(createdAt), 14).toISOString(),
-        };
-        if (existing && existing.members.length < 2) {
-          next = {
-            ...existing,
-            inviteCode: normalized,
-            members: [
-              ...existing.members.map(normalizePerson),
-              normalizePerson(partnerPerson),
-            ],
-          };
-          return { ...s, couple: next };
-        }
-        next = {
-          id: uid("c"),
-          createdAt,
-          inviteCode: normalized,
-          members: [
-            normalizePerson(s.me),
-            normalizePerson(partnerPerson),
-          ],
-        };
-        return { ...s, couple: next };
-      });
-      return next;
+
+      return null;
     },
     [
       applyRemoteState,
+      clerkUserId,
       duoCloudActive,
       duoRuntime.duoDeferredSnapshotSync,
-      serverCoupleActionsEnabled,
     ],
   );
 
@@ -878,6 +863,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       {children}
     </StoreContext.Provider>
   );
+}
+
+function ClerkScopedStoreProvider({ children }: { children: React.ReactNode }) {
+  const { userId } = useAuth();
+  return (
+    <StoreProviderCore clerkUserId={userId ?? null}>
+      {children}
+    </StoreProviderCore>
+  );
+}
+
+export function StoreProvider({ children }: { children: React.ReactNode }) {
+  const duoRuntime = useDuoRuntimeEnv();
+  if (!duoRuntime.clerkPublishableKey.trim()) {
+    return <StoreProviderCore clerkUserId={null}>{children}</StoreProviderCore>;
+  }
+  return <ClerkScopedStoreProvider>{children}</ClerkScopedStoreProvider>;
 }
 
 export function useStore(): StoreValue {
