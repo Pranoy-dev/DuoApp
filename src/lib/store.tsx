@@ -349,13 +349,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     async (code: string, partner?: Partial<Person>) => {
       if (duoCloudActive) {
         const r = await duoActions.joinCoupleAction(code);
-        if (!r.ok) return null;
+        if (!r.ok) throw new Error(r.message);
         applyRemoteState(r.data);
         return r.data.couple;
       }
       if (hybridServerCouple) {
         const r = await duoActions.joinCoupleAction(code);
-        if (!r.ok) return null;
+        if (!r.ok) throw new Error(r.message);
         applyRemoteState(r.data);
         return r.data.couple;
       }
@@ -364,6 +364,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (!s.me) return s;
         const normalized = code.trim().toUpperCase();
         const existing = s.couple;
+        if (existing && existing.members.length >= 2) return s;
         if (existing && existing.inviteCode === normalized) {
           next = existing;
           return s;
@@ -378,6 +379,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           streakRevivesRemaining: 3,
           streakRevivesNextRefillAt: addDays(new Date(createdAt), 14).toISOString(),
         };
+        if (existing && existing.members.length < 2) {
+          next = {
+            ...existing,
+            inviteCode: normalized,
+            members: [
+              ...existing.members.map(normalizePerson),
+              normalizePerson(partnerPerson),
+            ],
+          };
+          return { ...s, couple: next };
+        }
         next = {
           id: uid("c"),
           createdAt,

@@ -18,9 +18,9 @@ export function TabBar() {
   return (
     <nav
       aria-label="Primary"
-      className="pointer-events-none absolute inset-x-0 bottom-0 z-40 flex justify-center pb-[max(env(safe-area-inset-bottom),0.5rem)]"
+      className="z-40 flex shrink-0 justify-center border-t border-border/40 bg-background/95 px-6 pt-2 pb-[max(env(safe-area-inset-bottom),0.5rem)] backdrop-blur-xl"
     >
-      <div className="pointer-events-auto mx-8 mb-1.5 flex w-full max-w-[400px] items-stretch justify-between rounded-full border border-border/60 bg-background/80 p-1 shadow-[0_10px_40px_-12px_rgba(0,0,0,0.18)] backdrop-blur-xl">
+      <div className="flex w-full max-w-[400px] items-stretch justify-between rounded-full border border-border/60 bg-background/90 p-1 shadow-[0_10px_40px_-12px_rgba(0,0,0,0.18)] backdrop-blur-xl">
         {TABS.map((t) => {
           const active =
             pathname === t.href || pathname.startsWith(`${t.href}/`);

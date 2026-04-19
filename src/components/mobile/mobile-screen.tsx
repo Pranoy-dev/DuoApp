@@ -52,7 +52,7 @@ export function MobileScreen({
         )}
       >
         {children}
-        <div className="h-24" />
+        <div className="h-4 shrink-0" aria-hidden />
       </div>
     </div>
   );

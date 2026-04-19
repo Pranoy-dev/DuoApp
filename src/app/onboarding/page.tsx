@@ -46,8 +46,8 @@ export default function OnboardingPage() {
   };
 
   return (
-    <div className="flex h-full flex-col safe-x">
-      <div className="safe-top flex items-center justify-between py-4">
+    <div className="flex h-full min-h-0 flex-col safe-x">
+      <div className="safe-top flex shrink-0 items-center justify-between py-4">
         <div className="flex items-center gap-2 text-sm font-semibold tracking-tight">
           <span
             aria-hidden
@@ -72,215 +72,220 @@ export default function OnboardingPage() {
         )}
       </div>
 
-      <div className="flex flex-1 flex-col justify-center">
-        <AnimatePresence mode="wait">
-          {step === "welcome" && (
-            <StepFrame key="welcome">
-              <Hero />
-              <div className="mt-10 flex flex-col gap-3">
-                <Button
-                  size="lg"
-                  className="h-12 w-full rounded-2xl text-base"
-                  onClick={() => setStep("name")}
-                >
-                  Let's begin <ArrowRight className="ml-1.5 size-4" />
-                </Button>
-                <p className="text-center text-xs text-muted-foreground">
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-0.5 pt-2">
+          <AnimatePresence mode="wait">
+            {step === "welcome" && (
+              <StepFrame key="welcome">
+                <Hero />
+                <p className="mt-8 text-center text-xs text-muted-foreground">
                   Takes under a minute.
                 </p>
-              </div>
-            </StepFrame>
-          )}
+              </StepFrame>
+            )}
 
-          {step === "name" && (
-            <StepFrame key="name">
-              <StepHeader
-                eyebrow="Step 1 of 3"
-                title="What should we call you?"
-                blurb="This is how your partner will see you."
-              />
-              <div className="mt-8 grid gap-5">
-                <div>
-                  <Label htmlFor="name">First name</Label>
-                  <Input
-                    id="name"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="Alex"
-                    className="mt-1.5 h-12 rounded-2xl text-base"
-                    autoFocus
-                  />
-                </div>
-                <div>
-                  <Label>Pick an icon</Label>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {EMOJIS.map((e) => (
-                      <button
-                        key={e}
-                        type="button"
-                        onClick={() => setEmoji(e)}
-                        className={`flex size-12 items-center justify-center rounded-2xl border text-2xl transition-colors ${
-                          emoji === e
-                            ? "border-foreground bg-foreground/5"
-                            : "border-border hover:border-foreground/40"
-                        }`}
-                      >
-                        {e}
-                      </button>
-                    ))}
+            {step === "name" && (
+              <StepFrame key="name">
+                <StepHeader
+                  eyebrow="Step 1 of 3"
+                  title="What should we call you?"
+                  blurb="This is how your partner will see you."
+                />
+                <div className="mt-8 grid gap-5 pb-4">
+                  <div>
+                    <Label htmlFor="name">First name</Label>
+                    <Input
+                      id="name"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="Alex"
+                      className="mt-1.5 h-12 rounded-2xl text-base"
+                      autoFocus
+                    />
+                  </div>
+                  <div>
+                    <Label>Pick an icon</Label>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {EMOJIS.map((e) => (
+                        <button
+                          key={e}
+                          type="button"
+                          onClick={() => setEmoji(e)}
+                          className={`flex size-12 items-center justify-center rounded-2xl border text-2xl transition-colors ${
+                            emoji === e
+                              ? "border-foreground bg-foreground/5"
+                              : "border-border hover:border-foreground/40"
+                          }`}
+                        >
+                          {e}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              </div>
-              <div className="mt-8">
-                <Button
-                  size="lg"
-                  className="h-12 w-full rounded-2xl text-base"
-                  onClick={() => setStep("tone")}
-                  disabled={!name.trim()}
-                >
-                  Continue
-                </Button>
-              </div>
-            </StepFrame>
-          )}
+              </StepFrame>
+            )}
 
-          {step === "tone" && (
-            <StepFrame key="tone">
-              <StepHeader
-                eyebrow="Step 2 of 3"
-                title="Pick your tone"
-                blurb="Your daily quote is chosen from this shelf. You can switch later."
-              />
-              <div className="mt-6 flex flex-col gap-2">
-                {QUOTE_TONES.map((t) => (
+            {step === "tone" && (
+              <StepFrame key="tone">
+                <StepHeader
+                  eyebrow="Step 2 of 3"
+                  title="Pick your tone"
+                  blurb="Your daily quote is chosen from this shelf. You can switch later."
+                />
+                <div className="mt-6 flex flex-col gap-2 pb-4">
+                  {QUOTE_TONES.map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => setTone(t.id as QuoteTone)}
+                      className={`flex items-center justify-between rounded-2xl border px-4 py-3.5 text-left transition-colors ${
+                        tone === t.id
+                          ? "border-foreground bg-foreground/5"
+                          : "border-border hover:border-foreground/40"
+                      }`}
+                    >
+                      <div>
+                        <p className="text-base font-semibold">{t.label}</p>
+                        <p className="text-sm text-muted-foreground">{t.blurb}</p>
+                      </div>
+                      {tone === t.id && (
+                        <span
+                          aria-hidden
+                          className="flex size-6 shrink-0 items-center justify-center rounded-full bg-foreground text-background"
+                        >
+                          ✓
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </StepFrame>
+            )}
+
+            {step === "pair" && (
+              <StepFrame key="pair">
+                <StepHeader
+                  eyebrow="Step 3 of 3"
+                  title="Are you the first one here?"
+                  blurb="You can invite your partner now or join with a code they sent."
+                />
+                <div className="mt-6 grid gap-3 pb-4">
                   <button
-                    key={t.id}
                     type="button"
-                    onClick={() => setTone(t.id as QuoteTone)}
-                    className={`flex items-center justify-between rounded-2xl border px-4 py-3.5 text-left transition-colors ${
-                      tone === t.id
+                    onClick={() => setPairMode("create")}
+                    className={`rounded-2xl border p-4 text-left transition-colors ${
+                      pairMode === "create"
                         ? "border-foreground bg-foreground/5"
                         : "border-border hover:border-foreground/40"
                     }`}
                   >
-                    <div>
-                      <p className="text-base font-semibold">{t.label}</p>
-                      <p className="text-sm text-muted-foreground">{t.blurb}</p>
-                    </div>
-                    {tone === t.id && (
-                      <span
-                        aria-hidden
-                        className="flex size-6 items-center justify-center rounded-full bg-foreground text-background"
-                      >
-                        ✓
-                      </span>
-                    )}
+                    <p className="text-base font-semibold">I'll invite my partner</p>
+                    <p className="text-sm text-muted-foreground">
+                      Create a pair now and share the code.
+                    </p>
                   </button>
-                ))}
-              </div>
-              <div className="mt-8">
-                <Button
-                  size="lg"
-                  className="h-12 w-full rounded-2xl text-base"
-                  onClick={() => setStep("pair")}
-                >
-                  Continue
-                </Button>
-              </div>
-            </StepFrame>
-          )}
+                  <button
+                    type="button"
+                    onClick={() => setPairMode("join")}
+                    className={`rounded-2xl border p-4 text-left transition-colors ${
+                      pairMode === "join"
+                        ? "border-foreground bg-foreground/5"
+                        : "border-border hover:border-foreground/40"
+                    }`}
+                  >
+                    <p className="text-base font-semibold">I have a code</p>
+                    <p className="text-sm text-muted-foreground">
+                      Join the pair your partner already started.
+                    </p>
+                  </button>
+                </div>
+              </StepFrame>
+            )}
 
-          {step === "pair" && (
-            <StepFrame key="pair">
-              <StepHeader
-                eyebrow="Step 3 of 3"
-                title="Are you the first one here?"
-                blurb="You can invite your partner now or join with a code they sent."
-              />
-              <div className="mt-6 grid gap-3">
-                <button
-                  type="button"
-                  onClick={() => setPairMode("create")}
-                  className={`rounded-2xl border p-4 text-left transition-colors ${
-                    pairMode === "create"
-                      ? "border-foreground bg-foreground/5"
-                      : "border-border hover:border-foreground/40"
-                  }`}
-                >
-                  <p className="text-base font-semibold">I'll invite my partner</p>
-                  <p className="text-sm text-muted-foreground">
-                    Create a pair now and share the code.
-                  </p>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPairMode("join")}
-                  className={`rounded-2xl border p-4 text-left transition-colors ${
-                    pairMode === "join"
-                      ? "border-foreground bg-foreground/5"
-                      : "border-border hover:border-foreground/40"
-                  }`}
-                >
-                  <p className="text-base font-semibold">I have a code</p>
-                  <p className="text-sm text-muted-foreground">
-                    Join the pair your partner already started.
-                  </p>
-                </button>
-              </div>
-              <div className="mt-8">
-                <Button
-                  size="lg"
-                  className="h-12 w-full rounded-2xl text-base"
-                  onClick={() => {
-                    if (pairMode === "create") void finish();
-                    else if (pairMode === "join") setStep("invite");
-                  }}
-                  disabled={!pairMode}
-                >
-                  Continue
-                </Button>
-              </div>
-            </StepFrame>
-          )}
-
-          {step === "invite" && (
-            <StepFrame key="invite">
-              <StepHeader
-                eyebrow="Almost there"
-                title="Enter the code"
-                blurb="Ask your partner to share it from Settings on their phone."
-              />
-              <div className="mt-6">
-                <Label htmlFor="code">Invite code</Label>
-                <Input
-                  id="code"
-                  value={code}
-                  onChange={(e) => {
-                    setCode(e.target.value.toUpperCase());
-                    setError(null);
-                  }}
-                  placeholder="ABC123"
-                  className="mt-1.5 h-14 rounded-2xl text-center font-mono text-2xl tracking-[0.3em]"
-                  maxLength={8}
-                  autoFocus
+            {step === "invite" && (
+              <StepFrame key="invite">
+                <StepHeader
+                  eyebrow="Almost there"
+                  title="Enter the code"
+                  blurb="Ask your partner to share it from Settings on their phone."
                 />
-                {error && (
-                  <p className="mt-2 text-sm text-destructive">{error}</p>
-                )}
-              </div>
-              <div className="mt-8">
-                <Button
-                  size="lg"
-                  className="h-12 w-full rounded-2xl text-base"
-                  onClick={() => void finish({ code })}
-                  disabled={code.length < 4}
-                >
-                  Join pair
-                </Button>
-              </div>
-            </StepFrame>
+                <div className="mt-6 pb-4">
+                  <Label htmlFor="code">Invite code</Label>
+                  <Input
+                    id="code"
+                    value={code}
+                    onChange={(e) => {
+                      setCode(e.target.value.toUpperCase());
+                      setError(null);
+                    }}
+                    placeholder="ABC123"
+                    className="mt-1.5 h-14 rounded-2xl text-center font-mono text-2xl tracking-[0.3em]"
+                    maxLength={8}
+                    autoFocus
+                  />
+                  {error && (
+                    <p className="mt-2 text-sm text-destructive">{error}</p>
+                  )}
+                </div>
+              </StepFrame>
+            )}
+          </AnimatePresence>
+        </div>
+
+        <div className="shrink-0 border-t border-border/60 bg-background/90 px-0.5 pt-3 shadow-[0_-8px_24px_-8px_rgba(0,0,0,0.12)] backdrop-blur-xl pb-[max(env(safe-area-inset-bottom),0.75rem)]">
+          {step === "welcome" && (
+            <Button
+              size="lg"
+              className="h-12 w-full rounded-2xl text-base"
+              onClick={() => setStep("name")}
+            >
+              Let&apos;s begin <ArrowRight className="ml-1.5 size-4" />
+            </Button>
           )}
-        </AnimatePresence>
+          {step === "name" && (
+            <Button
+              size="lg"
+              className="h-12 w-full rounded-2xl text-base"
+              onClick={() => setStep("tone")}
+              disabled={!name.trim()}
+            >
+              Continue
+            </Button>
+          )}
+          {step === "tone" && (
+            <Button
+              size="lg"
+              className="h-12 w-full rounded-2xl text-base"
+              onClick={() => setStep("pair")}
+            >
+              Continue
+            </Button>
+          )}
+          {step === "pair" && (
+            <Button
+              size="lg"
+              className="h-12 w-full rounded-2xl text-base"
+              onClick={() => {
+                if (pairMode === "create") void finish();
+                else if (pairMode === "join") setStep("invite");
+              }}
+              disabled={!pairMode}
+            >
+              Continue
+            </Button>
+          )}
+          {step === "invite" && (
+            <Button
+              size="lg"
+              className="h-12 w-full rounded-2xl text-base"
+              onClick={() => void finish({ code })}
+              disabled={code.length < 4}
+            >
+              Join pair
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );

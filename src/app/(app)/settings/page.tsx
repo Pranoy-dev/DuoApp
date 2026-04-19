@@ -6,6 +6,8 @@ import { Copy, Share2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { MobileScreen } from "@/components/mobile/mobile-screen";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -36,12 +38,12 @@ export default function SettingsPage() {
     removeHabit,
     resetAll,
     createCouple,
-    addPartner,
+    joinCouple,
   } = useStore();
   const me = state.me!;
   const couple = state.couple;
 
-  const [partnerName, setPartnerName] = useState("");
+  const [partnerCode, setPartnerCode] = useState("");
 
   const shareLink =
     typeof window !== "undefined" && couple
@@ -184,38 +186,69 @@ export default function SettingsPage() {
             )}
             {couple.members.length < 2 && (
               <div className="border-t border-border/60 bg-muted/30 p-3">
-                <p className="text-[12px] font-semibold">
-                  Demo — add a partner
+                <Label
+                  htmlFor="partner-invite-code"
+                  className="text-[12px] font-semibold"
+                >
+                  Paste partner code
+                </Label>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  If you both started Duo separately, paste the code from their
+                  Settings here to link the same pair (or use their invite link).
                 </p>
-                <div className="mt-2 flex gap-2">
-                  <input
-                    value={partnerName}
-                    onChange={(e) => setPartnerName(e.target.value)}
-                    placeholder="Partner's name"
-                    className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-[13px]"
+                <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-end">
+                  <Input
+                    id="partner-invite-code"
+                    value={partnerCode}
+                    onChange={(e) =>
+                      setPartnerCode(e.target.value.toUpperCase())
+                    }
+                    placeholder="e.g. ABC123"
+                    autoCapitalize="characters"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    className="h-10 rounded-xl font-mono text-sm tracking-wider sm:flex-1"
+                    maxLength={8}
                   />
                   <Button
                     size="sm"
-                    className="h-8 rounded-full px-3 text-xs"
+                    className="h-10 shrink-0 rounded-full px-4 text-xs sm:w-auto"
+                    disabled={partnerCode.trim().length < 4}
                     onClick={() => {
                       void (async () => {
-                        if (!partnerName.trim()) return;
-                        const next = await addPartner({
-                          name: partnerName.trim(),
-                          emoji: "🌙",
-                        });
-                        if (!next) {
-                          if (duoCloudActive || hybridCouple) {
-                            toast("Share your invite link so your partner can join.");
-                          }
+                        const raw = partnerCode.trim().toUpperCase();
+                        if (raw.length < 4) return;
+                        if (
+                          couple &&
+                          couple.inviteCode === raw &&
+                          couple.members.length < 2
+                        ) {
+                          toast(
+                            "That is your invite code — your partner should paste it on their phone.",
+                          );
                           return;
                         }
-                        setPartnerName("");
-                        toast("Partner added");
+                        try {
+                          const joined = await joinCouple(raw);
+                          if (!joined) {
+                            toast.error(
+                              "That code did not work. Check the code or ask your partner to copy it again from Settings.",
+                            );
+                            return;
+                          }
+                          setPartnerCode("");
+                          toast.success("You are paired.");
+                        } catch (e) {
+                          toast.error(
+                            e instanceof Error
+                              ? e.message
+                              : "Could not join with that code.",
+                          );
+                        }
                       })();
                     }}
                   >
-                    Add
+                    Connect
                   </Button>
                 </div>
               </div>

@@ -58,7 +58,7 @@ export default function RootLayout({
   const shell = (
     <StoreProvider>
       <DeferredSnapshotSync />
-      <main className="phone-frame flex flex-col">{children}</main>
+      <main className="phone-frame flex min-h-0 flex-col">{children}</main>
       <CheerBurst />
       <MilestoneOverlay />
       <Toaster position="bottom-center" offset={88} />
