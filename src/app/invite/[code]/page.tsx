@@ -34,6 +34,14 @@ export default function InviteLanding({ params }: PageProps) {
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  const deepLinkRedirect = `/invite/${normalized}`;
+
+  const startReauth = () => {
+    router.replace(
+      `/sign-in?redirect_url=${encodeURIComponent(deepLinkRedirect)}`,
+    );
+  };
+
   useEffect(() => {
     if (!ready) return;
     if (state.me && state.couple?.inviteCode === normalized) {
@@ -61,7 +69,16 @@ export default function InviteLanding({ params }: PageProps) {
         }
         router.replace("/today");
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Something went wrong");
+        const message = e instanceof Error ? e.message : "Something went wrong";
+        if (
+          message.includes("Finish your profile on this device first") ||
+          message.includes("Profile not provisioned")
+        ) {
+          setError("Please sign in again to confirm your account for this invite.");
+          startReauth();
+          return;
+        }
+        setError(message);
       }
     })();
   };
@@ -127,6 +144,13 @@ export default function InviteLanding({ params }: PageProps) {
               ? "You will skip the invite setup screens and open your main page."
               : "You can personalize everything after joining."}
           </p>
+          <button
+            type="button"
+            className="text-center text-xs text-muted-foreground underline-offset-4 hover:underline"
+            onClick={startReauth}
+          >
+            Not you? Switch account
+          </button>
         </div>
       </div>
     </div>
