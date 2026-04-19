@@ -1,13 +1,11 @@
 "use client";
 
-import { UserButton, useAuth } from "@clerk/nextjs";
+import { UserButton } from "@clerk/nextjs";
 import { useMemo, useState } from "react";
-import { Copy, Share2, Trash2 } from "lucide-react";
+import { Share2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { MobileScreen } from "@/components/mobile/mobile-screen";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -22,7 +20,6 @@ import { QUOTE_TONES } from "@/lib/quotes";
 import type { QuoteTone } from "@/lib/types";
 
 export default function SettingsPage() {
-  const { userId } = useAuth();
   const duoRuntime = useDuoRuntimeEnv();
   const duoCloudActive = computeDuoCloudClientConfigured(duoRuntime);
   const deferredSnapshot =
@@ -32,36 +29,25 @@ export default function SettingsPage() {
   const syncMeta = useMemo(() => readSyncMeta(), [syncUiTick]);
   const {
     state,
+    signOut,
     setTone,
     setGrace,
     removeHabit,
     resetAll,
     createCouple,
-    joinCouple,
   } = useStore();
   const me = state.me!;
   const couple = state.couple;
 
-  const [partnerCode, setPartnerCode] = useState("");
 
   const shareLink =
     typeof window !== "undefined" && couple
       ? `${window.location.origin}/invite/${couple.inviteCode}`
       : "";
 
-  const copyCode = async () => {
-    if (!couple) return;
-    try {
-      await navigator.clipboard.writeText(couple.inviteCode);
-      toast("Invite code copied");
-    } catch {
-      toast("Copy failed — select and copy manually");
-    }
-  };
-
   const share = async () => {
     if (!couple) return;
-    const text = `Join me on Duo — use code ${couple.inviteCode}`;
+    const text = "Join me on Duo.";
     const nav = typeof navigator !== "undefined" ? navigator : null;
     const canShare = nav && "share" in nav;
     if (canShare) {
@@ -118,15 +104,15 @@ export default function SettingsPage() {
         {!couple ? (
           <div className="p-4">
             <p className="text-[13px] text-muted-foreground">
-              Create a pair to get an invite code for your partner.
+              Create a pair to get a shareable invite link for your partner.
             </p>
             <Button
               className="mt-3 w-full"
               onClick={() => {
                 void (async () => {
                   try {
-                    const c = await createCouple();
-                    toast(`Invite code: ${c.inviteCode}`);
+                    await createCouple();
+                    toast("Pair created. Share your invite link.");
                   } catch (e) {
                     toast.error(
                       e instanceof Error ? e.message : "Could not create pair",
@@ -140,24 +126,14 @@ export default function SettingsPage() {
           </div>
         ) : (
           <>
-            <div className="flex items-center justify-between gap-3 p-4">
-              <div className="min-w-0">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                  Invite code
-                </p>
-                <p className="mt-0.5 font-mono text-xl font-semibold tracking-[0.2em]">
-                  {couple.inviteCode}
-                </p>
-              </div>
-              <div className="flex shrink-0 items-center gap-1.5">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="h-8 rounded-full px-3 text-xs"
-                  onClick={copyCode}
-                >
-                  <Copy className="mr-1 size-3.5" /> Copy
-                </Button>
+            <div className="p-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                Invite link
+              </p>
+              <p className="mt-1 text-[12px] text-muted-foreground">
+                Share a private link so your partner joins your pair directly.
+              </p>
+              <div className="mt-3 flex shrink-0 items-center gap-1.5">
                 <Button
                   size="sm"
                   className="h-8 rounded-full px-3 text-xs"
@@ -183,81 +159,7 @@ export default function SettingsPage() {
                 </div>
               </div>
             )}
-            {couple.members.length < 2 && (
-              <div className="border-t border-border/60 bg-muted/30 p-3">
-                <Label
-                  htmlFor="partner-invite-code"
-                  className="text-[12px] font-semibold"
-                >
-                  Paste partner code
-                </Label>
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  If you both started Duo separately, paste the code from their
-                  Settings here to link the same pair (or use their invite link).
-                </p>
-                <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-end">
-                  <Input
-                    id="partner-invite-code"
-                    value={partnerCode}
-                    onChange={(e) =>
-                      setPartnerCode(e.target.value.toUpperCase())
-                    }
-                    placeholder="e.g. ABC123"
-                    autoCapitalize="characters"
-                    autoCorrect="off"
-                    spellCheck={false}
-                    className="h-10 rounded-xl font-mono text-sm tracking-wider sm:flex-1"
-                    maxLength={8}
-                  />
-                  <Button
-                    size="sm"
-                    className="h-10 shrink-0 rounded-full px-4 text-xs sm:w-auto"
-                    disabled={partnerCode.trim().length < 4}
-                    onClick={() => {
-                      void (async () => {
-                        const raw = partnerCode.trim().toUpperCase();
-                        if (raw.length < 4) return;
-                        if (
-                          couple &&
-                          couple.inviteCode === raw &&
-                          couple.members.length < 2
-                        ) {
-                          toast(
-                            "That is your invite code — your partner should paste it on their phone.",
-                          );
-                          return;
-                        }
-                        try {
-                          const joined = await joinCouple(raw);
-                          if (!joined) {
-                            if (clerkConfigured && !userId) {
-                              toast.error(
-                                "Sign in on this device, then paste your partner’s code again.",
-                              );
-                            } else {
-                              toast.error(
-                                "That code did not work. Check the code or ask your partner to copy it again from Settings.",
-                              );
-                            }
-                            return;
-                          }
-                          setPartnerCode("");
-                          toast.success("You are paired.");
-                        } catch (e) {
-                          toast.error(
-                            e instanceof Error
-                              ? e.message
-                              : "Could not join with that code.",
-                          );
-                        }
-                      })();
-                    }}
-                  >
-                    Connect
-                  </Button>
-                </div>
-              </div>
-            )}
+
           </>
         )}
       </section>
@@ -377,12 +279,32 @@ export default function SettingsPage() {
       <Separator className="my-4" />
 
       <Button
+        variant="outline"
+        size="sm"
+        className="mb-2 w-full"
+        onClick={() => {
+          void signOut();
+        }}
+      >
+        Log out
+      </Button>
+
+      <Button
         variant="ghost"
         size="sm"
         className="w-full text-destructive hover:text-destructive"
         onClick={() => {
           if (confirm("Reset Duo? This clears all local data.")) {
-            resetAll();
+            void (async () => {
+              try {
+                await resetAll();
+                toast.success("Duo has been reset.");
+              } catch (e) {
+                toast.error(
+                  e instanceof Error ? e.message : "Could not reset Duo.",
+                );
+              }
+            })();
           }
         }}
       >

@@ -716,6 +716,36 @@ export async function setGraceAction(enabled: boolean): Promise<DuoActionResult<
   }
 }
 
+/**
+ * Destructive reset for current Duo data.
+ * - If in a couple, deleting the couple cascades shared pair data (habits/completions/etc).
+ * - Clears current user's profile row so onboarding starts fresh.
+ */
+export async function resetDuoAction(): Promise<DuoActionResult<null>> {
+  try {
+    const ctx = await requireDuoContext();
+    const supabase = getServiceSupabase()!;
+
+    if (ctx.coupleId) {
+      const { error: coupleErr } = await supabase
+        .from("couples")
+        .delete()
+        .eq("id", ctx.coupleId);
+      if (coupleErr) return { ok: false, code: "db", message: coupleErr.message };
+    }
+
+    const { error: userErr } = await supabase
+      .from("users")
+      .delete()
+      .eq("id", ctx.userUuid);
+    if (userErr) return { ok: false, code: "db", message: userErr.message };
+
+    return { ok: true, data: null };
+  } catch (e) {
+    return err(e);
+  }
+}
+
 export type DeferredSnapshotPayload = {
   state: AppState;
   updatedAt: string;

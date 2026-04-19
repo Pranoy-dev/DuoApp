@@ -259,7 +259,7 @@ type StoreValue = {
   setGrace: (enabled: boolean) => Promise<void>;
   unlockTodayQuote: () => Promise<JournalEntry | null>;
   saveDayExcitement: (input: { stars: number; note: string }) => Promise<void>;
-  resetAll: () => void;
+  resetAll: () => Promise<void>;
   /** Replace store from server snapshot (deferred sync / bootstrap). */
   applyRemoteHydration: (data: AppState) => void;
   /** Live cloud: reload full state from Supabase (e.g. partner completions). */
@@ -940,7 +940,19 @@ function StoreProviderCore({
     [applyRemoteState, duoCloudActive],
   );
 
-  const resetAll = useCallback(() => setState(EMPTY), []);
+  const resetAll = useCallback(async () => {
+    if (serverCoupleActionsEnabled) {
+      const r = await duoActions.resetDuoAction();
+      if (!r.ok) throw new Error(r.message);
+    }
+    setState(EMPTY);
+    try {
+      window.localStorage.removeItem(STORAGE_KEY);
+      clearSyncMetaStorage();
+    } catch {
+      /* ignore */
+    }
+  }, [serverCoupleActionsEnabled]);
 
   const value = useMemo<StoreValue>(
     () => ({

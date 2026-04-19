@@ -278,6 +278,34 @@ export default function PartnerPage() {
 function WaitingRoom() {
   const { state } = useStore();
   const couple = state.couple;
+
+  const shareFromWaitingRoom = async () => {
+    if (!couple) return;
+    const link =
+      typeof window !== "undefined"
+        ? `${window.location.origin}/invite/${couple.inviteCode}`
+        : `/invite/${couple.inviteCode}`;
+    const nav = typeof navigator !== "undefined" ? navigator : null;
+    const text = "Join me on Duo.";
+    const canShare = nav && "share" in nav;
+    if (canShare) {
+      try {
+        await (nav as Navigator & {
+          share: (d: ShareData) => Promise<void>;
+        }).share({ title: "Duo", text, url: link });
+        return;
+      } catch {
+        // user cancelled — fall through to copy
+      }
+    }
+    try {
+      await (nav as Navigator).clipboard.writeText(`${text} — ${link}`);
+      toast("Invite link copied");
+    } catch {
+      toast("Copy failed — select and copy manually");
+    }
+  };
+
   return (
     <div className="flex flex-col items-center gap-5 pt-8 text-center">
       <div className="flex size-28 items-center justify-center rounded-full bg-gradient-to-br from-duo-soft to-accent text-5xl">
@@ -291,12 +319,13 @@ function WaitingRoom() {
         </p>
       </div>
       {couple ? (
-        <Link
-          href="/settings"
+        <button
+          type="button"
+          onClick={() => void shareFromWaitingRoom()}
           className="rounded-full bg-foreground px-5 py-2.5 text-sm font-medium text-background"
         >
-          Share invite code {couple.inviteCode}
-        </Link>
+          Share invite link
+        </button>
       ) : (
         <Link
           href="/onboarding"
