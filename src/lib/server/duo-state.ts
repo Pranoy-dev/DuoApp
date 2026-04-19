@@ -113,14 +113,25 @@ export async function getAppStateForClerkId(
 
   let completions: AppState["completions"] = [];
   if (habitIds.length > 0) {
-    const { data: completionRows } = await supabase
+    const { data: completionRowsModern, error: completionErr } = await supabase
       .from("habit_completions")
       .select("*")
       .in("habit_id", habitIds)
       .is("deleted_at", null);
-    completions = (completionRows ?? [])
-      .filter((r) => habitIdSet.has(r.habit_id as string))
-      .map((r) =>
+    let rowsToMap = completionRowsModern;
+    if (completionErr && String(completionErr.message).includes("deleted_at")) {
+      const { data: legacyRows, error: legacyErr } = await supabase
+        .from("habit_completions")
+        .select("*")
+        .in("habit_id", habitIds);
+      if (legacyErr) return { me, couple, ...EMPTY_SLICE };
+      rowsToMap = legacyRows;
+    } else if (completionErr) {
+      return { me, couple, ...EMPTY_SLICE };
+    }
+    completions = (rowsToMap ?? [])
+      .filter((r: { habit_id: string }) => habitIdSet.has(r.habit_id as string))
+      .map((r: Parameters<typeof rowToCompletion>[0]) =>
         rowToCompletion(r as Parameters<typeof rowToCompletion>[0]),
       );
   }
@@ -150,10 +161,19 @@ export async function getAppStateForClerkId(
     );
   }
 
-  const { data: journalRows } = await supabase
+  const { data: journalRowsJoined, error: journalErr } = await supabase
     .from("journal_entries")
-    .select("*")
+    .select("id,user_id,date,quote_id,quotes:quote_id(text,author,category_id)")
     .in("user_id", memberIds);
+  const journalRows =
+    journalErr && String(journalErr.message).toLowerCase().includes("quotes")
+      ? (
+          await supabase
+            .from("journal_entries")
+            .select("id,user_id,date,quote_id")
+            .in("user_id", memberIds)
+        ).data
+      : journalRowsJoined;
 
   const journal = (journalRows ?? []).map((r) =>
     rowToJournal(r as Parameters<typeof rowToJournal>[0]),

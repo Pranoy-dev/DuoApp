@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { computeDuoCloudClientConfigured } from "@/lib/duo-cloud";
 import { useDuoRuntimeEnv } from "@/lib/duo-runtime-env";
 import { useStore } from "@/lib/store";
-import { streakFor } from "@/lib/streak";
+import { streakFor, weekProgress } from "@/lib/streak";
 import { habitIntent } from "@/lib/types";
 import { addDays, formatDateKey, toDateKey, todayKey } from "@/lib/date";
 import { cn } from "@/lib/utils";
@@ -16,11 +16,6 @@ import { cn } from "@/lib/utils";
 const TIMELINE_DAYS = 14;
 const MAX_REVIVES = 3;
 const PARTNER_POLL_MS = 12_000;
-
-function possessiveFirst(fullName: string): string {
-  const first = fullName.split(" ")[0] || fullName;
-  return `${first}'s`;
-}
 
 function dateKeysLastNDays(n: number): string[] {
   const start = new Date();
@@ -34,36 +29,31 @@ function dateKeysLastNDays(n: number): string[] {
 export default function PartnerPage() {
   const duoRuntime = useDuoRuntimeEnv();
   const duoCloudActive = computeDuoCloudClientConfigured(duoRuntime);
-  const { state, revivePartnerMiss, refreshBootstrapFromServer } = useStore();
+  const {
+    state,
+    revivePartnerMiss,
+    refreshBootstrapFromServer,
+    markPartnerUpdatesSeen,
+  } = useStore();
   const me = state.me!;
   const couple = state.couple;
   const partner = couple?.members.find((m) => m.id !== me.id);
 
   useEffect(() => {
-    if (!duoCloudActive || !couple?.id || !partner?.id) return;
+    if (!duoCloudActive || !couple?.id) return;
     void refreshBootstrapFromServer();
-  }, [
-    duoCloudActive,
-    couple?.id,
-    partner?.id,
-    refreshBootstrapFromServer,
-  ]);
+  }, [duoCloudActive, couple?.id, refreshBootstrapFromServer]);
 
   useEffect(() => {
-    if (!duoCloudActive || !couple?.id || !partner?.id) return;
+    if (!duoCloudActive || !couple?.id) return;
     const id = window.setInterval(() => {
       void refreshBootstrapFromServer();
     }, PARTNER_POLL_MS);
     return () => window.clearInterval(id);
-  }, [
-    duoCloudActive,
-    couple?.id,
-    partner?.id,
-    refreshBootstrapFromServer,
-  ]);
+  }, [duoCloudActive, couple?.id, refreshBootstrapFromServer]);
 
   useEffect(() => {
-    if (!duoCloudActive || !couple?.id || !partner?.id) return;
+    if (!duoCloudActive || !couple?.id) return;
     const onVis = () => {
       if (document.visibilityState === "visible") {
         void refreshBootstrapFromServer();
@@ -71,12 +61,11 @@ export default function PartnerPage() {
     };
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
-  }, [
-    duoCloudActive,
-    couple?.id,
-    partner?.id,
-    refreshBootstrapFromServer,
-  ]);
+  }, [duoCloudActive, couple?.id, refreshBootstrapFromServer]);
+
+  useEffect(() => {
+    markPartnerUpdatesSeen();
+  }, [markPartnerUpdatesSeen]);
 
   if (!couple || !partner) {
     return (
@@ -89,8 +78,6 @@ export default function PartnerPage() {
   const partnerHabits = state.habits.filter(
     (h) => h.ownerId === partner.id && h.visibility === "shared",
   );
-
-  const timelineHabits = partnerHabits.filter((h) => h.type !== "frequency");
 
   const totalStreak = partnerHabits.reduce(
     (acc, h) =>
@@ -156,19 +143,10 @@ export default function PartnerPage() {
         <h2 className="mb-2 px-0.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
           Last {TIMELINE_DAYS} days
         </h2>
-        {partnerHabits.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-border bg-card/60 p-6 text-center text-[13px] text-muted-foreground">
-            {partner.name.split(" ")[0]} hasn't shared any habits yet.
-          </div>
-        ) : timelineHabits.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-border bg-card/60 p-6 text-center text-[13px] text-muted-foreground">
-            Weekly habits don’t appear on this daily timeline. Add a daily or
-            break habit to see check-ins here.
-          </div>
-        ) : (
+        {partnerHabits.length > 0 ? (
           <ul className="flex flex-col gap-4">
             {dateKeys.map((date) => {
-              const habitsForDate = timelineHabits.filter((habit) => {
+              const habitsForDate = partnerHabits.filter((habit) => {
                 const createdKey = toDateKey(new Date(habit.createdAt));
                 return date >= createdKey;
               });
@@ -191,75 +169,100 @@ export default function PartnerPage() {
 
                       const first = partner.name.split(" ")[0] ?? partner.name;
                       const breakH = habitIntent(habit) === "break";
+                      const frequency = habit.type === "frequency";
+                      const canRevive =
+                        !done && !frequency && date < todayKey() && revivesLeft > 0;
+                      const streak = streakFor(
+                        habit,
+                        state.completions,
+                        partner.id,
+                        partner.graceEnabled,
+                      ).current;
+                      const weekInfo =
+                        habit.type === "frequency"
+                          ? weekProgress(habit, state.completions, partner.id)
+                          : null;
+                      const remainingText = frequency
+                        ? `${Math.max((weekInfo?.target ?? 0) - (weekInfo?.count ?? 0), 0)} left this week`
+                        : breakH
+                          ? `${Math.max((habit.breakGoalDays ?? 1) - streak, 0)} days left`
+                          : `${done ? 0 : 1} left today`;
 
                       return (
-                        <li
-                          key={`${date}-${habit.id}`}
-                          className={cn(
-                            "flex min-h-[44px] items-center justify-between gap-3 rounded-2xl border px-3 py-2.5",
-                            done
-                              ? "border-border/60 bg-card/80"
-                              : "border-destructive/35 bg-destructive/5",
-                          )}
-                        >
-                          <p
+                        <li key={`${date}-${habit.id}`} className="space-y-2">
+                          <div
                             className={cn(
-                              "min-w-0 flex-1 text-[13px] leading-snug",
-                              done ? "text-foreground" : "text-destructive",
+                              "group relative flex w-full items-center gap-3 overflow-hidden rounded-2xl border border-border/60 bg-card/90 p-3 text-left transition-all",
+                              done
+                                ? "border-border/50 bg-muted/45 text-muted-foreground"
+                                : !frequency
+                                  ? "border-destructive/35 bg-destructive/5"
+                                  : "",
                             )}
                             aria-label={
                               done
                                 ? `${first} completed ${habit.name} on ${date}`
-                                : `${first} missed ${habit.name} on ${date}`
+                                : `${first} has not checked in ${habit.name} on ${date}`
                             }
                           >
-                            {done ? (
-                              breakH ? (
-                                <>
-                                  <span className="font-semibold text-foreground">
-                                    {first}
-                                  </span>{" "}
-                                  avoided{" "}
-                                  <span className="font-semibold">
-                                    {habit.name}
-                                  </span>
-                                </>
-                              ) : (
-                                <>
-                                  <span className="font-semibold text-foreground">
-                                    {possessiveFirst(partner.name)}
-                                  </span>{" "}
-                                  <span className="font-semibold">
-                                    {habit.name}
-                                  </span>{" "}
-                                  is done
-                                </>
-                              )
-                            ) : (
-                              <>
-                                <span className="font-semibold">Missed · </span>
-                                <span className="font-semibold">{first}</span>
-                                {" — "}
-                                <span className="font-semibold">
+                            <span
+                              aria-hidden
+                              className={cn(
+                                "relative z-[1] flex size-11 flex-col items-center justify-center rounded-xl bg-muted/80",
+                                done &&
+                                  "bg-foreground text-background shadow-sm ring-1 ring-foreground/20",
+                              )}
+                            >
+                              <span className="text-base font-semibold leading-none tabular-nums">
+                                {Math.max(streak, 0)}
+                              </span>
+                            </span>
+                            <span
+                              className={cn(
+                                "min-w-0 flex-1",
+                                done && "opacity-45",
+                              )}
+                            >
+                              <span className="flex items-center gap-2">
+                                <span
+                                  className={cn(
+                                    "truncate text-[15px] font-semibold",
+                                    done && "text-muted-foreground",
+                                  )}
+                                >
                                   {habit.name}
                                 </span>
-                              </>
-                            )}
-                          </p>
-                          {!done && (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              disabled={revivesLeft <= 0}
-                              className="h-9 shrink-0 rounded-full border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                              aria-label={`Revive ${habit.name} for ${first} on ${date}`}
-                              onClick={() =>
-                                void onRevive(habit.id, date, habit.name)
-                              }
-                            >
-                              Revive
-                            </Button>
+                                {habit.visibility === "solo" && (
+                                  <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                                    Solo
+                                  </span>
+                                )}
+                              </span>
+                              <span
+                                className={cn(
+                                  "mt-0.5 flex items-center gap-1.5 text-[12px]",
+                                  done ? "text-muted-foreground/80" : "text-muted-foreground",
+                                )}
+                              >
+                                <span>{remainingText}</span>
+                              </span>
+                            </span>
+                          </div>
+                          {canRevive && (
+                            <div className="flex justify-end">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="h-9 shrink-0 rounded-full border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                aria-label={`Revive ${habit.name} for ${first} on ${date}`}
+                                onClick={() =>
+                                  void onRevive(habit.id, date, habit.name)
+                                }
+                              >
+                                Revive
+                              </Button>
+                            </div>
                           )}
                         </li>
                       );
@@ -269,6 +272,10 @@ export default function PartnerPage() {
               );
             })}
           </ul>
+        ) : (
+          <div className="rounded-2xl border border-dashed border-border bg-card/60 p-6 text-center text-[13px] text-muted-foreground">
+            Daily revive timeline appears once there are shared habits.
+          </div>
         )}
       </section>
     </MobileScreen>

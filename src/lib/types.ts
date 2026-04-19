@@ -64,6 +64,9 @@ export type JournalEntry = {
   userId: string;
   date: string;
   quoteId: string;
+  quoteText?: string;
+  quoteAuthor?: string;
+  quoteTone?: QuoteTone;
 };
 
 /** Daily excitement check-in (1–5 stars + optional note), one row per user per calendar day. */

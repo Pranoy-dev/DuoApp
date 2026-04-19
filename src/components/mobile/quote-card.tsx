@@ -1,40 +1,51 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
-import { Sparkles, Lock } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import type { Quote } from "@/lib/quotes";
 
 type Props = {
-  locked: boolean;
-  progress: { done: number; total: number };
   quote?: Quote;
-  onUnlock: () => void | Promise<unknown>;
+  fallbackQuote?: Quote;
+  onReveal: () => void | Promise<unknown>;
 };
 
-export function QuoteCard({ locked, progress, quote, onUnlock }: Props) {
-  const [revealed, setRevealed] = useState(!locked);
-  const ready = progress.done >= progress.total && progress.total > 0;
+export function QuoteCard({ quote, fallbackQuote, onReveal }: Props) {
+  const [revealed, setRevealed] = useState(Boolean(quote));
+  const [revealing, setRevealing] = useState(false);
+  const visibleQuote = quote ?? (revealed ? fallbackQuote : undefined);
 
-  const handleClick = () => {
-    if (locked && ready) {
-      void Promise.resolve(onUnlock());
-      setRevealed(true);
-    } else if (!locked) {
-      setRevealed((v) => !v);
+  useEffect(() => {
+    setRevealed(Boolean(quote));
+  }, [quote?.id, quote?.text, quote?.author]);
+
+  const handleClick = async () => {
+    if (revealing) return;
+    if (!quote) {
+      try {
+        setRevealing(true);
+        await Promise.resolve(onReveal());
+        setRevealed(true);
+      } finally {
+        setRevealing(false);
+      }
+      return;
     }
+    setRevealed((v) => !v);
   };
 
   return (
     <button
       type="button"
-      onClick={handleClick}
+      onClick={() => void handleClick()}
+      disabled={revealing}
       className={cn(
         "group relative block w-full overflow-hidden rounded-3xl text-left transition-transform",
         "bg-gradient-to-br from-duo-soft via-accent to-duo-soft",
         "border border-border/50 shadow-[0_20px_50px_-20px_color-mix(in_oklab,var(--duo)_40%,transparent)]",
-        ready && "active:scale-[0.995]",
-        !ready && "opacity-85",
+        "active:scale-[0.995]",
+        revealing && "opacity-90",
       )}
     >
       <div
@@ -51,31 +62,21 @@ export function QuoteCard({ locked, progress, quote, onUnlock }: Props) {
             <Sparkles className="size-3" strokeWidth={2} />
             Daily quote
           </span>
-          {locked && !revealed && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-background/60 px-2.5 py-0.5 text-[10px] font-semibold text-foreground/70 backdrop-blur">
-              <Lock className="size-3" strokeWidth={2} />
-              {progress.done}/{progress.total}
-            </span>
-          )}
         </div>
-        {revealed && quote ? (
+        {visibleQuote ? (
           <div>
             <p className="text-[17px] font-semibold leading-snug text-foreground">
-              &ldquo;{quote.text}&rdquo;
+              &ldquo;{visibleQuote.text}&rdquo;
             </p>
-            <p className="mt-2 text-xs text-foreground/60">— {quote.author}</p>
+            <p className="mt-2 text-xs text-foreground/60">— {visibleQuote.author}</p>
           </div>
         ) : (
           <div>
             <p className="text-[17px] font-semibold leading-snug text-foreground/80">
-              {ready
-                ? "Tap to reveal today's quote."
-                : "Finish today's habits to unlock a quote."}
+              {revealing ? "Revealing today's quote..." : "Tap to reveal today's quote."}
             </p>
             <p className="mt-2 text-xs text-foreground/55">
-              {ready
-                ? "One quote a day, saved to your journal."
-                : `${progress.done} of ${progress.total} done`}
+              One quote a day, automatically refreshes every 24 hours.
             </p>
           </div>
         )}

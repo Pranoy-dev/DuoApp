@@ -37,6 +37,39 @@ function err(e: unknown): DuoActionResult<never> {
   return { ok: false, code: "error", message };
 }
 
+function missingColumn(e: { message?: string } | null | undefined, column: string): boolean {
+  const msg = String(e?.message ?? "").toLowerCase();
+  const col = column.toLowerCase();
+  return (
+    (msg.includes("column") && msg.includes(col)) ||
+    msg.includes(`${col} does not exist`) ||
+    msg.includes(`.${col} does not exist`) ||
+    msg.includes(`'${col}'`)
+  );
+}
+
+function missingRelation(e: { message?: string } | null | undefined, relation: string): boolean {
+  const msg = String(e?.message ?? "").toLowerCase();
+  const rel = relation.toLowerCase();
+  return (
+    msg.includes("could not find") &&
+    (msg.includes(`'${rel}'`) ||
+      msg.includes(rel) ||
+      msg.includes(`public.${rel}`))
+  );
+}
+
+function quoteSchemaMissing(e: { message?: string } | null | undefined): boolean {
+  const msg = String(e?.message ?? "").toLowerCase();
+  if (!msg.includes("schema cache") && !msg.includes("could not find")) return false;
+  return (
+    msg.includes("quote_categories") ||
+    msg.includes("quotes") ||
+    msg.includes("user_quote_progress") ||
+    msg.includes("user_quote_history")
+  );
+}
+
 export async function getBootstrapStateAction(): Promise<
   DuoActionResult<AppState | null>
 > {
@@ -243,6 +276,80 @@ export async function removeHabitAction(
   }
 }
 
+export async function updateHabitAction(
+  habitId: string,
+  patch: {
+    name: string;
+    visibility: Habit["visibility"];
+    targetPerWeek?: number;
+    breakGoalDays?: number;
+  },
+): Promise<DuoActionResult<AppState>> {
+  try {
+    const ctx = await requireDuoContext();
+    if (!ctx.coupleId) {
+      return { ok: false, code: "bad_request", message: "No couple" };
+    }
+    const supabase = getServiceSupabase()!;
+    const { data: habit } = await supabase
+      .from("habits")
+      .select("*")
+      .eq("id", habitId)
+      .eq("couple_id", ctx.coupleId)
+      .maybeSingle();
+    if (!habit || habit.owner_id !== ctx.userUuid) {
+      return { ok: false, code: "unauthorized", message: "Not your habit" };
+    }
+    const nextName = patch.name.trim();
+    if (!nextName) {
+      return { ok: false, code: "bad_request", message: "Habit name is required" };
+    }
+    const isFrequency = habit.type === "frequency";
+    const targetPerWeek =
+      patch.targetPerWeek != null ? Math.floor(patch.targetPerWeek) : null;
+    const breakGoalDays =
+      patch.breakGoalDays != null ? Math.floor(patch.breakGoalDays) : null;
+    if (isFrequency) {
+      if (!targetPerWeek || targetPerWeek < 1 || targetPerWeek > 7) {
+        return {
+          ok: false,
+          code: "bad_request",
+          message: "Times per week must be between 1 and 7",
+        };
+      }
+    } else if (!breakGoalDays || breakGoalDays < 1 || breakGoalDays > 365) {
+      return {
+        ok: false,
+        code: "bad_request",
+        message: "Break goal days must be between 1 and 365",
+      };
+    }
+
+    const updatePayload = isFrequency
+      ? {
+          name: nextName,
+          visibility: patch.visibility,
+          target_per_week: targetPerWeek,
+          break_goal_days: null,
+        }
+      : {
+          name: nextName,
+          visibility: patch.visibility,
+          break_goal_days: breakGoalDays,
+        };
+    const { error } = await supabase
+      .from("habits")
+      .update(updatePayload)
+      .eq("id", habitId)
+      .eq("couple_id", ctx.coupleId);
+    if (error) return { ok: false, code: "db", message: error.message };
+    const state = await getAppStateForClerkId(ctx.clerkId);
+    return { ok: true, data: state! };
+  } catch (e) {
+    return err(e);
+  }
+}
+
 function habitVisibleTo(h: Habit, userUuid: string): boolean {
   return h.visibility === "shared" || h.ownerId === userUuid;
 }
@@ -295,15 +402,53 @@ export async function toggleCompletionAction(input: {
     }
 
     const operationId = input.operationId?.trim() || crypto.randomUUID();
-    const { data: existing } = await supabase
+    let legacyCompletionSchema = false;
+    let existing:
+      | {
+          id: string;
+          deleted_at?: string | null;
+          operation_id?: string | null;
+          version?: number | null;
+        }
+      | null = null;
+    const { data: existingModern, error: existingErr } = await supabase
       .from("habit_completions")
       .select("id, deleted_at, operation_id, version")
       .eq("habit_id", input.habitId)
       .eq("user_id", input.userId)
       .eq("date", date)
       .maybeSingle();
+    if (existingErr) {
+      if (
+        missingColumn(existingErr, "deleted_at") ||
+        missingColumn(existingErr, "operation_id") ||
+        missingColumn(existingErr, "version")
+      ) {
+        legacyCompletionSchema = true;
+        const { data: existingLegacy, error: legacyErr } = await supabase
+          .from("habit_completions")
+          .select("id")
+          .eq("habit_id", input.habitId)
+          .eq("user_id", input.userId)
+          .eq("date", date)
+          .maybeSingle();
+        if (legacyErr) return { ok: false, code: "db", message: legacyErr.message };
+        existing = existingLegacy as { id: string } | null;
+      } else {
+        return { ok: false, code: "db", message: existingErr.message };
+      }
+    } else {
+      existing = existingModern as
+        | {
+            id: string;
+            deleted_at?: string | null;
+            operation_id?: string | null;
+            version?: number | null;
+          }
+        | null;
+    }
 
-    if (existing?.operation_id === operationId) {
+    if (!legacyCompletionSchema && existing?.operation_id === operationId) {
       const state = await getAppStateForClerkId(ctx.clerkId);
       return {
         ok: true,
@@ -320,7 +465,9 @@ export async function toggleCompletionAction(input: {
       };
     }
 
-    const currentlyDone = Boolean(existing?.id && !existing.deleted_at);
+    const currentlyDone = legacyCompletionSchema
+      ? Boolean(existing?.id)
+      : Boolean(existing?.id && !existing.deleted_at);
     const desiredAction: CompletionMutationAction =
       input.action ?? (currentlyDone ? "undone" : "done");
     const shouldBeDone = desiredAction === "done";
@@ -347,32 +494,43 @@ export async function toggleCompletionAction(input: {
 
     if (shouldBeDone) {
       if (existing?.id) {
-        serverVersion += 1;
-        const { error: upErr } = await supabase
-          .from("habit_completions")
-          .update({
-            deleted_at: null,
-            operation_id: operationId,
-            actor_user_id: ctx.userUuid,
-            device_id: input.deviceId ?? null,
-            updated_at: serverUpdatedAt,
-            version: serverVersion,
-          })
-          .eq("id", existing.id);
-        if (upErr) return { ok: false, code: "db", message: upErr.message };
+        if (!legacyCompletionSchema) {
+          serverVersion += 1;
+          const { error: upErr } = await supabase
+            .from("habit_completions")
+            .update({
+              deleted_at: null,
+              operation_id: operationId,
+              actor_user_id: ctx.userUuid,
+              device_id: input.deviceId ?? null,
+              updated_at: serverUpdatedAt,
+              version: serverVersion,
+            })
+            .eq("id", existing.id);
+          if (upErr) return { ok: false, code: "db", message: upErr.message };
+        }
       } else {
         serverVersion = 1;
-        const { error: insErr } = await supabase.from("habit_completions").insert({
-          habit_id: input.habitId,
-          user_id: input.userId,
-          date,
-          deleted_at: null,
-          operation_id: operationId,
-          actor_user_id: ctx.userUuid,
-          device_id: input.deviceId ?? null,
-          updated_at: serverUpdatedAt,
-          version: serverVersion,
-        });
+        const completionInsert = legacyCompletionSchema
+          ? {
+              habit_id: input.habitId,
+              user_id: input.userId,
+              date,
+            }
+          : {
+              habit_id: input.habitId,
+              user_id: input.userId,
+              date,
+              deleted_at: null,
+              operation_id: operationId,
+              actor_user_id: ctx.userUuid,
+              device_id: input.deviceId ?? null,
+              updated_at: serverUpdatedAt,
+              version: serverVersion,
+            };
+        const { error: insErr } = await supabase
+          .from("habit_completions")
+          .insert(completionInsert);
         if (insErr) return { ok: false, code: "db", message: insErr.message };
       }
 
@@ -383,12 +541,15 @@ export async function toggleCompletionAction(input: {
         .single();
       const grace = (userRow?.grace_enabled as boolean) ?? true;
 
-      const { data: compRows } = await supabase
+      const compQuery = supabase
         .from("habit_completions")
         .select("*")
         .eq("habit_id", input.habitId)
-        .eq("user_id", input.userId)
-        .is("deleted_at", null);
+        .eq("user_id", input.userId);
+      const { data: compRows, error: compErr } = legacyCompletionSchema
+        ? await compQuery
+        : await compQuery.is("deleted_at", null);
+      if (compErr) return { ok: false, code: "db", message: compErr.message };
 
       const completions = (compRows ?? []).map((r) =>
         rowToCompletion(r as Parameters<typeof rowToCompletion>[0]),
@@ -415,33 +576,42 @@ export async function toggleCompletionAction(input: {
       );
     } else if (existing?.id) {
       serverVersion += 1;
-      const { error: delErr } = await supabase
-        .from("habit_completions")
-        .update({
-          deleted_at: serverUpdatedAt,
-          operation_id: operationId,
-          actor_user_id: ctx.userUuid,
-          device_id: input.deviceId ?? null,
-          updated_at: serverUpdatedAt,
-          version: serverVersion,
-        })
-        .eq("id", existing.id);
+      const { error: delErr } = legacyCompletionSchema
+        ? await supabase
+            .from("habit_completions")
+            .delete()
+            .eq("id", existing.id)
+        : await supabase
+            .from("habit_completions")
+            .update({
+              deleted_at: serverUpdatedAt,
+              operation_id: operationId,
+              actor_user_id: ctx.userUuid,
+              device_id: input.deviceId ?? null,
+              updated_at: serverUpdatedAt,
+              version: serverVersion,
+            })
+            .eq("id", existing.id);
       if (delErr) return { ok: false, code: "db", message: delErr.message };
     }
 
-    const { error: evtErr } = await supabase.from("completion_events").insert({
-      couple_id: ctx.coupleId,
-      habit_id: input.habitId,
-      user_id: input.userId,
-      date,
-      action: desiredAction,
-      operation_id: operationId,
-      actor_user_id: ctx.userUuid,
-      device_id: input.deviceId ?? null,
-      version: serverVersion,
-      server_ts: serverUpdatedAt,
-    });
-    if (evtErr) return { ok: false, code: "db", message: evtErr.message };
+    if (!legacyCompletionSchema) {
+      const { error: evtErr } = await supabase.from("completion_events").insert({
+        couple_id: ctx.coupleId,
+        habit_id: input.habitId,
+        user_id: input.userId,
+        date,
+        action: desiredAction,
+        operation_id: operationId,
+        actor_user_id: ctx.userUuid,
+        device_id: input.deviceId ?? null,
+        version: serverVersion,
+        server_ts: serverUpdatedAt,
+      });
+      if (evtErr && !missingRelation(evtErr, "completion_events")) {
+        return { ok: false, code: "db", message: evtErr.message };
+      }
+    }
 
     const state = await getAppStateForClerkId(ctx.clerkId);
     return {
@@ -504,8 +674,8 @@ export async function revivePartnerMissAction(input: {
       return { ok: false, code: "bad_request", message: "Not a daily habit" };
     }
     const today = todayKey();
-    if (input.date > today) {
-      return { ok: false, code: "bad_request", message: "Future date" };
+    if (input.date >= today) {
+      return { ok: false, code: "bad_request", message: "Revive available next day" };
     }
     const { data: dup } = await supabase
       .from("habit_completions")
@@ -625,13 +795,7 @@ export async function unlockTodayQuoteAction(): Promise<
     const ctx = await requireDuoContext();
     const supabase = getServiceSupabase()!;
     const date = todayKey();
-    const { data: existing } = await supabase
-      .from("journal_entries")
-      .select("id")
-      .eq("user_id", ctx.userUuid)
-      .eq("date", date)
-      .maybeSingle();
-    if (!existing?.id) {
+    const unlockWithLegacyQuote = async (): Promise<DuoActionResult<AppState>> => {
       const { data: meRow } = await supabase
         .from("users")
         .select("tone")
@@ -646,6 +810,170 @@ export async function unlockTodayQuoteAction(): Promise<
       });
       if (error && !String(error.message).toLowerCase().includes("duplicate")) {
         return { ok: false, code: "db", message: error.message };
+      }
+      const state = await getAppStateForClerkId(ctx.clerkId);
+      return { ok: true, data: state! };
+    };
+    const { data: existing } = await supabase
+      .from("journal_entries")
+      .select("id")
+      .eq("user_id", ctx.userUuid)
+      .eq("date", date)
+      .maybeSingle();
+    if (!existing?.id) {
+      const { data: firstCategory, error: catErr } = await supabase
+        .from("quote_categories")
+        .select("id, sort_order")
+        .order("sort_order", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (catErr || !firstCategory?.id) {
+        if (catErr && quoteSchemaMissing(catErr)) {
+          return unlockWithLegacyQuote();
+        }
+        return {
+          ok: false,
+          code: "db",
+          message: catErr?.message ?? "Missing quote categories",
+        };
+      }
+
+      let { data: progress, error: progressErr } = await supabase
+        .from("user_quote_progress")
+        .select("*")
+        .eq("user_id", ctx.userUuid)
+        .maybeSingle();
+      if (!progressErr && !progress) {
+        const { data: inserted, error: insertErr } = await supabase
+          .from("user_quote_progress")
+          .insert({
+            user_id: ctx.userUuid,
+            current_category_id: firstCategory.id as string,
+            next_position: 1,
+            completed: false,
+          })
+          .select("*")
+          .single();
+        progress = inserted;
+        progressErr = insertErr;
+      }
+      if (progressErr && quoteSchemaMissing(progressErr)) {
+        return unlockWithLegacyQuote();
+      }
+      if (progressErr && String(progressErr.message).toLowerCase().includes("duplicate")) {
+        const { data: existingProgress, error: reloadErr } = await supabase
+          .from("user_quote_progress")
+          .select("*")
+          .eq("user_id", ctx.userUuid)
+          .single();
+        progress = existingProgress;
+        progressErr = reloadErr;
+      }
+      if (progressErr || !progress) {
+        return {
+          ok: false,
+          code: "db",
+          message: progressErr?.message ?? "Could not load quote progress",
+        };
+      }
+      if (progress.completed) {
+        const state = await getAppStateForClerkId(ctx.clerkId);
+        return { ok: true, data: state! };
+      }
+
+      const { data: quoteRow, error: quoteErr } = await supabase
+        .from("quotes")
+        .select("id, category_id, position_in_category")
+        .eq("category_id", progress.current_category_id as string)
+        .eq("position_in_category", progress.next_position as number)
+        .maybeSingle();
+      if (quoteErr || !quoteRow?.id) {
+        if (quoteErr && quoteSchemaMissing(quoteErr)) {
+          return unlockWithLegacyQuote();
+        }
+        return {
+          ok: false,
+          code: "db",
+          message: quoteErr?.message ?? "Quote not found for current cursor",
+        };
+      }
+      const quoteId = quoteRow.id as string;
+
+      const { error: historyErr } = await supabase
+        .from("user_quote_history")
+        .insert({
+          user_id: ctx.userUuid,
+          quote_id: quoteId,
+          shown_at: new Date().toISOString(),
+        });
+      if (
+        historyErr &&
+        !String(historyErr.message).toLowerCase().includes("duplicate")
+      ) {
+        if (quoteSchemaMissing(historyErr)) {
+          return unlockWithLegacyQuote();
+        }
+        return { ok: false, code: "db", message: historyErr.message };
+      }
+
+      const { error } = await supabase.from("journal_entries").insert({
+        user_id: ctx.userUuid,
+        date,
+        quote_id: quoteId,
+      });
+      if (error && !String(error.message).toLowerCase().includes("duplicate")) {
+        return { ok: false, code: "db", message: error.message };
+      }
+
+      let nextPosition = Number(progress.next_position) + 1;
+      let nextCategory = progress.current_category_id as string;
+      let completed = Boolean(progress.completed);
+
+      const { count: categoryCountRaw, error: countErr } = await supabase
+        .from("quotes")
+        .select("id", { count: "exact", head: true })
+        .eq("category_id", nextCategory);
+      if (countErr) {
+        if (quoteSchemaMissing(countErr)) return unlockWithLegacyQuote();
+        return { ok: false, code: "db", message: countErr.message };
+      }
+      const categoryCount = Number(categoryCountRaw ?? 0) || 0;
+
+      if (nextPosition > categoryCount) {
+        const { data: curCategory } = await supabase
+          .from("quote_categories")
+          .select("sort_order")
+          .eq("id", nextCategory)
+          .single();
+        const currentOrder = Number(curCategory?.sort_order ?? 0);
+        const { data: nextCategoryRow } = await supabase
+          .from("quote_categories")
+          .select("id")
+          .gt("sort_order", currentOrder)
+          .order("sort_order", { ascending: true })
+          .limit(1)
+          .maybeSingle();
+        if (nextCategoryRow?.id) {
+          nextCategory = nextCategoryRow.id as string;
+          nextPosition = 1;
+        } else {
+          completed = true;
+          nextPosition = categoryCount + 1;
+        }
+      }
+
+      const { error: upProgressErr } = await supabase
+        .from("user_quote_progress")
+        .update({
+          current_category_id: nextCategory,
+          next_position: nextPosition,
+          completed,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", ctx.userUuid);
+      if (upProgressErr) {
+        if (quoteSchemaMissing(upProgressErr)) return unlockWithLegacyQuote();
+        return { ok: false, code: "db", message: upProgressErr.message };
       }
     }
     const state = await getAppStateForClerkId(ctx.clerkId);

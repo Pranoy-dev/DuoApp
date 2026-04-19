@@ -33,6 +33,16 @@ export function DeferredSnapshotSync() {
   const pulledRef = useRef(false);
 
   const shouldRun = deferredEnabled && !duoCloudActive && ready;
+  const shouldPullForMembershipOrPartnerHabits = Boolean(
+    state.me &&
+      state.couple &&
+      ((state.couple.members?.length ?? 0) < 2 ||
+        state.habits.filter(
+          (h) =>
+            h.visibility === "shared" &&
+            h.ownerId !== state.me?.id,
+        ).length === 0),
+  );
 
   const flush = useCallback(async () => {
     if (!userIdRef.current) return;
@@ -50,39 +60,40 @@ export function DeferredSnapshotSync() {
   }, []);
 
   // Pull once per mount after Clerk is ready (server wins if newer).
+  const pullIfNewer = useCallback(async () => {
+    const r = await duoActions.pullDeferredSnapshotAction();
+    if (!r.ok || !r.data) return;
+    const { state: remote, updatedAt } = r.data;
+    const meta = readSyncMeta();
+    const serverTs = new Date(updatedAt).getTime();
+    const localTs = meta.lastServerUpdatedAt
+      ? new Date(meta.lastServerUpdatedAt).getTime()
+      : 0;
+    if (serverTs > localTs) {
+      applyRemoteHydration(remote);
+      writeSyncMeta({
+        ...meta,
+        lastServerUpdatedAt: updatedAt,
+        dirty: false,
+      });
+    }
+  }, [applyRemoteHydration]);
+
   useEffect(() => {
     if (!shouldRun || !isLoaded || !userId) return;
     if (pulledRef.current) return;
     pulledRef.current = true;
-    let cancelled = false;
-    void (async () => {
-      const r = await duoActions.pullDeferredSnapshotAction();
-      if (cancelled || !r.ok || !r.data) return;
-      const { state: remote, updatedAt } = r.data;
-      const meta = readSyncMeta();
-      const serverTs = new Date(updatedAt).getTime();
-      const localTs = meta.lastServerUpdatedAt
-        ? new Date(meta.lastServerUpdatedAt).getTime()
-        : 0;
-      if (serverTs > localTs) {
-        applyRemoteHydration(remote);
-        writeSyncMeta({
-          ...meta,
-          lastServerUpdatedAt: updatedAt,
-          dirty: false,
-        });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [shouldRun, isLoaded, userId, applyRemoteHydration]);
+    void pullIfNewer();
+  }, [shouldRun, isLoaded, userId, pullIfNewer]);
 
   // Daily interval + flush when tab becomes visible and online.
   useEffect(() => {
     if (!shouldRun || !userId) return;
     const id = window.setInterval(() => {
       void flush();
+      if (shouldPullForMembershipOrPartnerHabits) {
+        void pullIfNewer();
+      }
     }, DEFERRED_SYNC_INTERVAL_MS);
     const onVis = () => {
       if (
@@ -91,6 +102,9 @@ export function DeferredSnapshotSync() {
         navigator.onLine
       ) {
         void flush();
+        if (shouldPullForMembershipOrPartnerHabits) {
+          void pullIfNewer();
+        }
       }
     };
     document.addEventListener("visibilitychange", onVis);
@@ -98,7 +112,13 @@ export function DeferredSnapshotSync() {
       window.clearInterval(id);
       document.removeEventListener("visibilitychange", onVis);
     };
-  }, [shouldRun, userId, flush]);
+  }, [
+    shouldRun,
+    userId,
+    flush,
+    pullIfNewer,
+    shouldPullForMembershipOrPartnerHabits,
+  ]);
 
   useEffect(() => {
     if (!shouldRun) return;

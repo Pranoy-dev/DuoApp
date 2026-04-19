@@ -20,7 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { useStore } from "@/lib/store";
 import { todayKey, humanDate } from "@/lib/date";
-import { quoteById } from "@/lib/quotes";
+import { pickQuoteForDate, quoteById } from "@/lib/quotes";
 import { cn } from "@/lib/utils";
 import type { HabitIntent } from "@/lib/types";
 
@@ -31,17 +31,26 @@ export default function TodayPage() {
   const me = state.me!;
   const today = todayKey();
   const myHabits = state.habits.filter((h) => h.ownerId === me.id);
-  const dailyHabits = myHabits.filter((h) => h.type === "daily");
-  const doneCount = dailyHabits.filter((h) =>
+  const doneCount = myHabits.filter((h) =>
     state.completions.some(
       (c) => c.habitId === h.id && c.userId === me.id && c.date === today,
     ),
   ).length;
-  const totalDaily = dailyHabits.length;
+  const totalHabits = myHabits.length;
   const journalForToday = state.journal.find(
     (j) => j.userId === me.id && j.date === today,
   );
-  const quote = journalForToday ? quoteById(journalForToday.quoteId) : undefined;
+  const quote = journalForToday
+    ? journalForToday.quoteText && journalForToday.quoteAuthor
+      ? {
+          id: journalForToday.quoteId,
+          text: journalForToday.quoteText,
+          author: journalForToday.quoteAuthor,
+          tone: journalForToday.quoteTone ?? me.tone,
+        }
+      : quoteById(journalForToday.quoteId) ??
+        pickQuoteForDate(journalForToday.date, me.tone)
+    : undefined;
 
   const greeting = useMemo(() => {
     const h = new Date().getHours();
@@ -59,10 +68,18 @@ export default function TodayPage() {
     >
       <section className="mb-4 mt-1">
         <QuoteCard
-          locked={!journalForToday}
-          progress={{ done: doneCount, total: Math.max(totalDaily, 1) }}
           quote={quote}
-          onUnlock={() => void unlockTodayQuote()}
+          fallbackQuote={pickQuoteForDate(today, me.tone)}
+          onReveal={async () => {
+            try {
+              await unlockTodayQuote();
+            } catch (e) {
+              toast.error(
+                e instanceof Error ? e.message : "Could not reveal today's quote.",
+              );
+              throw e;
+            }
+          }}
         />
       </section>
 
@@ -72,7 +89,7 @@ export default function TodayPage() {
             Today's habits
           </h2>
           <span className="text-[11px] font-medium text-muted-foreground">
-            {doneCount}/{totalDaily || 0} done
+            {doneCount}/{totalHabits || 0} done
           </span>
         </header>
         {myHabits.length === 0 ? (

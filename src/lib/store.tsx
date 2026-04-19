@@ -42,6 +42,7 @@ import { MILESTONE_TIERS } from "./milestones";
 import { pickQuoteForDate } from "./quotes";
 
 const STORAGE_KEY = "duo.state.v1";
+const PARTNER_POLL_MS = 12_000;
 
 const EMPTY: AppState = {
   me: null,
@@ -222,6 +223,37 @@ type PendingCompletionMutation = {
   nextDone: boolean;
 };
 
+type PartnerActivitySnapshot = {
+  partnerId: string | null;
+  sharedHabitIds: Set<string>;
+  completionKeys: Set<string>;
+};
+
+function partnerActivitySnapshot(s: AppState): PartnerActivitySnapshot {
+  if (!s.me || !s.couple) {
+    return { partnerId: null, sharedHabitIds: new Set(), completionKeys: new Set() };
+  }
+  const partner = s.couple.members.find((m) => m.id !== s.me?.id);
+  if (!partner) {
+    return { partnerId: null, sharedHabitIds: new Set(), completionKeys: new Set() };
+  }
+  const sharedHabitIds = new Set(
+    s.habits
+      .filter((h) => h.ownerId === partner.id && h.visibility === "shared")
+      .map((h) => h.id),
+  );
+  const completionKeys = new Set(
+    s.completions
+      .filter((c) => c.userId === partner.id && sharedHabitIds.has(c.habitId))
+      .map((c) => `${c.habitId}::${c.date}`),
+  );
+  return {
+    partnerId: partner.id,
+    sharedHabitIds,
+    completionKeys,
+  };
+}
+
 export type CompletionRealtimeEvent = {
   operationId: string;
   completionId: string;
@@ -246,6 +278,10 @@ type StoreValue = {
   joinCouple: (code: string, partner?: Partial<Person>) => Promise<Couple | null>;
   addPartner: (partner: { name: string; emoji: string }) => Promise<Couple | null>;
   addHabit: (h: Omit<Habit, "id" | "ownerId" | "createdAt">) => Promise<Habit>;
+  updateHabit: (
+    habitId: string,
+    patch: Pick<Habit, "name" | "visibility" | "targetPerWeek" | "breakGoalDays">,
+  ) => Promise<void>;
   removeHabit: (id: string) => Promise<void>;
   toggleCompletion: (habitId: string, userId: string, date?: string) => Promise<void>;
   revivePartnerMiss: (args: {
@@ -266,6 +302,10 @@ type StoreValue = {
   refreshBootstrapFromServer: () => Promise<void>;
   /** Apply realtime completion event pushed from server. */
   applyCompletionRealtimeEvent: (event: CompletionRealtimeEvent) => void;
+  /** Number of unseen partner updates for Partner tab badge. */
+  partnerUpdatesBadge: number;
+  /** Clear partner update badge after opening Partner tab. */
+  markPartnerUpdatesSeen: () => void;
 };
 
 const StoreContext = createContext<StoreValue | null>(null);
@@ -344,28 +384,52 @@ function StoreProviderCore({
   const clerkAuthEnabled = Boolean(duoRuntime.clerkPublishableKey.trim());
   const [state, setState] = useState<AppState>(EMPTY);
   const [ready, setReady] = useState(false);
+  const [partnerUpdatesBadge, setPartnerUpdatesBadge] = useState(0);
   const stateRef = useRef<AppState>(EMPTY);
   const pendingByOpRef = useRef<Map<string, PendingCompletionMutation>>(new Map());
   const latestOpByIdentityRef = useRef<Map<string, string>>(new Map());
   const seenOperationIdsRef = useRef<Set<string>>(new Set());
+  const previousPartnerSnapshotRef = useRef<PartnerActivitySnapshot>(
+    partnerActivitySnapshot(EMPTY),
+  );
+  const remoteHydratedRef = useRef(false);
 
   const applyRemoteState = useCallback((data: AppState) => {
+    const previous = previousPartnerSnapshotRef.current;
+    const nextState = applyReplenishToState({
+      ...EMPTY,
+      ...data,
+      habits: (data.habits ?? []).map((h) => normalizeHabit(h)),
+      me: data.me ? normalizePerson(data.me) : null,
+      couple: data.couple
+        ? {
+            ...data.couple,
+            members: (data.couple.members ?? []).map((m) =>
+              normalizePerson(m as Person),
+            ),
+          }
+        : null,
+      dayExcitement: data.dayExcitement ?? [],
+    });
+    const next = partnerActivitySnapshot(nextState);
+    if (remoteHydratedRef.current) {
+      let delta = 0;
+      if (!previous.partnerId && next.partnerId) delta += 1;
+      if (previous.partnerId && next.partnerId && previous.partnerId === next.partnerId) {
+        for (const id of next.sharedHabitIds) {
+          if (!previous.sharedHabitIds.has(id)) delta += 1;
+        }
+        for (const key of next.completionKeys) {
+          if (!previous.completionKeys.has(key)) delta += 1;
+        }
+      }
+      if (delta > 0) setPartnerUpdatesBadge((n) => n + delta);
+    } else {
+      remoteHydratedRef.current = true;
+    }
+    previousPartnerSnapshotRef.current = next;
     setState(
-      applyReplenishToState({
-        ...EMPTY,
-        ...data,
-        habits: (data.habits ?? []).map((h) => normalizeHabit(h)),
-        me: data.me ? normalizePerson(data.me) : null,
-        couple: data.couple
-          ? {
-              ...data.couple,
-              members: (data.couple.members ?? []).map((m) =>
-                normalizePerson(m as Person),
-              ),
-            }
-          : null,
-        dayExcitement: data.dayExcitement ?? [],
-      }),
+      nextState,
     );
   }, []);
 
@@ -393,18 +457,43 @@ function StoreProviderCore({
         }
       }
 
-      setState((s) =>
-        applyCompletionState(s, {
+      let incrementBadge = false;
+      setState((s) => {
+        const beforePartnerId = s.me
+          ? s.couple?.members.find((m) => m.id !== s.me?.id)?.id
+          : null;
+        const nextState = applyCompletionState(s, {
           habitId: event.habitId,
           userId: event.userId,
           date: event.date,
           done: event.action === "done",
           completionId: event.completionId,
-        }),
-      );
+        });
+        const afterPartnerId = nextState.me
+          ? nextState.couple?.members.find((m) => m.id !== nextState.me?.id)?.id
+          : null;
+        const partnerId = afterPartnerId ?? beforePartnerId;
+        if (
+          event.action === "done" &&
+          partnerId &&
+          event.userId === partnerId
+        ) {
+          const habit = nextState.habits.find((h) => h.id === event.habitId);
+          if (habit?.ownerId === partnerId && habit.visibility === "shared") {
+            incrementBadge = true;
+          }
+        }
+        previousPartnerSnapshotRef.current = partnerActivitySnapshot(nextState);
+        return nextState;
+      });
+      if (incrementBadge) setPartnerUpdatesBadge((n) => n + 1);
     },
     [],
   );
+
+  const markPartnerUpdatesSeen = useCallback(() => {
+    setPartnerUpdatesBadge(0);
+  }, []);
 
   useEffect(() => {
     setState(readInitial());
@@ -443,6 +532,29 @@ function StoreProviderCore({
       // storage quota / private mode — ignore
     }
   }, [state, ready, duoCloudActive, duoRuntime.duoDeferredSnapshotSync]);
+
+  const shouldBackgroundRefreshSoloCouple =
+    duoCloudActive && ready && Boolean(state.couple?.id) && (state.couple?.members.length ?? 0) < 2;
+
+  useEffect(() => {
+    if (!shouldBackgroundRefreshSoloCouple) return;
+    const pull = () => {
+      void refreshBootstrapFromServer();
+    };
+    const id = window.setInterval(pull, PARTNER_POLL_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") pull();
+    };
+    window.addEventListener("focus", pull);
+    window.addEventListener("pageshow", pull);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener("focus", pull);
+      window.removeEventListener("pageshow", pull);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [refreshBootstrapFromServer, shouldBackgroundRefreshSoloCouple]);
 
   const createAccount = useCallback(
     async (p: { name: string; emoji: string; tone: QuoteTone }) => {
@@ -608,6 +720,66 @@ function StoreProviderCore({
     [applyRemoteState, duoCloudActive],
   );
 
+  const updateHabit = useCallback(
+    async (
+      habitId: string,
+      patch: Pick<
+        Habit,
+        "name" | "visibility" | "targetPerWeek" | "breakGoalDays"
+      >,
+    ) => {
+      const name = patch.name.trim();
+      if (!name) throw new Error("Habit name is required.");
+      if (patch.targetPerWeek != null) {
+        const n = Math.floor(patch.targetPerWeek);
+        if (n < 1 || n > 7) throw new Error("Times per week must be 1-7.");
+      }
+      if (patch.breakGoalDays != null) {
+        const n = Math.floor(patch.breakGoalDays);
+        if (n < 1 || n > 365) throw new Error("Break goal days must be 1-365.");
+      }
+
+      if (duoCloudActive) {
+        const r = await duoActions.updateHabitAction(habitId, {
+          name,
+          visibility: patch.visibility,
+          targetPerWeek:
+            patch.targetPerWeek != null ? Math.floor(patch.targetPerWeek) : undefined,
+          breakGoalDays:
+            patch.breakGoalDays != null ? Math.floor(patch.breakGoalDays) : undefined,
+        });
+        if (!r.ok) throw new Error(r.message);
+        applyRemoteState(r.data);
+        return;
+      }
+
+      setState((s) => {
+        const current = s.habits.find((h) => h.id === habitId);
+        if (!current || !s.me || current.ownerId !== s.me.id) return s;
+        const nextHabits = s.habits.map((h) => {
+          if (h.id !== habitId) return h;
+          if (h.type === "frequency") {
+            return normalizeHabit({
+              ...h,
+              name,
+              visibility: patch.visibility,
+              targetPerWeek: Math.floor(patch.targetPerWeek ?? h.targetPerWeek ?? 1),
+              breakGoalDays: undefined,
+            });
+          }
+          return normalizeHabit({
+            ...h,
+            name,
+            visibility: patch.visibility,
+            breakGoalDays: Math.floor(patch.breakGoalDays ?? h.breakGoalDays ?? 1),
+          });
+        });
+        return { ...s, habits: nextHabits };
+      });
+    },
+    [applyRemoteState, duoCloudActive],
+  );
+
   const removeHabit = useCallback(
     async (id: string) => {
       if (duoCloudActive) {
@@ -738,7 +910,7 @@ function StoreProviderCore({
         if (habit.type === "frequency") return { ...s, me };
 
         const today = todayKey();
-        if (args.date > today) return { ...s, me };
+        if (args.date >= today) return { ...s, me };
 
         const exists = s.completions.some(
           (c) =>
@@ -964,6 +1136,7 @@ function StoreProviderCore({
       joinCouple,
       addPartner,
       addHabit,
+      updateHabit,
       removeHabit,
       toggleCompletion,
       revivePartnerMiss,
@@ -977,6 +1150,8 @@ function StoreProviderCore({
       applyRemoteHydration: applyRemoteState,
       refreshBootstrapFromServer,
       applyCompletionRealtimeEvent,
+      partnerUpdatesBadge,
+      markPartnerUpdatesSeen,
     }),
     [
       state,
@@ -987,6 +1162,7 @@ function StoreProviderCore({
       joinCouple,
       addPartner,
       addHabit,
+      updateHabit,
       removeHabit,
       toggleCompletion,
       revivePartnerMiss,
@@ -1000,6 +1176,8 @@ function StoreProviderCore({
       applyRemoteState,
       refreshBootstrapFromServer,
       applyCompletionRealtimeEvent,
+      partnerUpdatesBadge,
+      markPartnerUpdatesSeen,
     ],
   );
 

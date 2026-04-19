@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BookHeart, Home, Sparkles, UsersRound, Settings } from "lucide-react";
+import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 const TABS = [
@@ -15,6 +16,7 @@ const TABS = [
 
 export function TabBar() {
   const pathname = usePathname();
+  const { partnerUpdatesBadge } = useStore();
   return (
     <nav
       aria-label="Primary"
@@ -44,6 +46,17 @@ export function TabBar() {
                 )}
                 strokeWidth={active ? 2.25 : 1.75}
               />
+              {t.href === "/partner" && partnerUpdatesBadge > 0 ? (
+                <span
+                  className={cn(
+                    "absolute top-0.5 right-[calc(50%-14px)] inline-flex min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-semibold leading-4 text-destructive-foreground shadow-sm",
+                    active && "bg-background text-foreground",
+                  )}
+                  aria-label={`${partnerUpdatesBadge} unread partner updates`}
+                >
+                  {partnerUpdatesBadge > 99 ? "99+" : partnerUpdatesBadge}
+                </span>
+              ) : null}
               <span>{t.label}</span>
             </Link>
           );

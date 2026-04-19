@@ -153,12 +153,22 @@ export function rowToJournal(row: {
   user_id: string;
   date: string;
   quote_id: string;
+  quotes?: {
+    text?: string;
+    author?: string;
+    category_id?: string;
+  } | null;
 }): JournalEntry {
   return {
     id: row.id,
     userId: row.user_id,
     date: row.date,
     quoteId: row.quote_id,
+    quoteText: row.quotes?.text,
+    quoteAuthor: row.quotes?.author,
+    quoteTone:
+      (row.quotes?.category_id as JournalEntry["quoteTone"] | undefined) ??
+      undefined,
   };
 }
 
