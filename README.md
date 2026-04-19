@@ -31,6 +31,22 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 
 ## Deploy on Vercel
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Connect the repo and deploy. For **Clerk** (and optional Supabase sync), set environment variables in **Vercel → Project → Settings → Environment Variables** for **Production** (and **Preview** if you use preview URLs), then **Redeploy**.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Required for Clerk:
+
+- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
+- `CLERK_SECRET_KEY`
+
+Optional paths (defaults match this repo):
+
+- `NEXT_PUBLIC_CLERK_SIGN_IN_URL` (default `/sign-in`)
+- `NEXT_PUBLIC_CLERK_SIGN_UP_URL` (default `/sign-up`)
+
+For server-backed habits/sync (see `.env.example`):
+
+- `NEXT_PUBLIC_DUO_USE_SERVER_DATA=1` plus Supabase URL, keys, and `SUPABASE_SERVICE_ROLE_KEY`
+
+In the **Clerk dashboard**, add your deployment origin (for example `https://<project>.vercel.app` and any custom domain) so sign-in works in production.
+
+More detail: [Next.js on Vercel](https://nextjs.org/docs/app/building-your-application/deploying).

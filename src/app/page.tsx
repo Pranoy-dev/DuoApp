@@ -3,11 +3,8 @@
 import { useAuth } from "@clerk/nextjs";
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useDuoRuntimeEnv } from "@/lib/duo-runtime-env";
 import { useStore } from "@/lib/store";
-
-const clerkPk = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim();
-const signInPath =
-  process.env.NEXT_PUBLIC_CLERK_SIGN_IN_URL?.trim() || "/sign-in";
 
 function LoadingDuo() {
   return (
@@ -41,7 +38,7 @@ function LocalRootRedirect() {
  * With Clerk configured, wait for session before sending anonymous users to
  * onboarding (onboarding is for Duo profile setup after sign-in).
  */
-function ClerkRootRedirect() {
+function ClerkRootRedirect({ signInPath }: { signInPath: string }) {
   const router = useRouter();
   const { state, ready } = useStore();
   const { isLoaded, userId } = useAuth();
@@ -55,11 +52,17 @@ function ClerkRootRedirect() {
     }
     if (!state.me) router.replace("/onboarding");
     else router.replace("/today");
-  }, [ready, state.me, router, isLoaded, userId]);
+  }, [ready, state.me, router, isLoaded, userId, signInPath]);
 
   return <LoadingDuo />;
 }
 
 export default function RootRedirect() {
-  return clerkPk ? <ClerkRootRedirect /> : <LocalRootRedirect />;
+  const { clerkPublishableKey, clerkSignInUrl } = useDuoRuntimeEnv();
+  const clerkPk = clerkPublishableKey.trim();
+  return clerkPk ? (
+    <ClerkRootRedirect signInPath={clerkSignInUrl} />
+  ) : (
+    <LocalRootRedirect />
+  );
 }

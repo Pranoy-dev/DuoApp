@@ -27,10 +27,50 @@ export function publicDuoSupabaseJwtExchangeEnabled(): boolean {
   return truthy(process.env.NEXT_PUBLIC_DUO_SUPABASE_JWT_EXCHANGE);
 }
 
-/** Client + SSR: Clerk publishable key present and cloud data flag on. */
-export function duoCloudClientConfigured(): boolean {
-  return (
-    publicDuoCloudDataEnabled() &&
-    Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim())
-  );
+/**
+ * Public env read on the server each request and passed into the client tree.
+ * Ensures Vercel (and local) pick up `NEXT_PUBLIC_*` after deploy without relying
+ * on client-bundle build-time inlining alone.
+ */
+export type DuoRuntimePublicEnv = {
+  clerkPublishableKey: string;
+  clerkSignInUrl: string;
+  clerkSignUpUrl: string;
+  duoUseServerData: boolean;
+  duoSupabaseJwtExchange: boolean;
+  supabaseUrl: string;
+  supabasePublishableKey: string;
+  supabaseAnonKey: string;
+};
+
+export function readDuoRuntimePublicEnv(): DuoRuntimePublicEnv {
+  return {
+    clerkPublishableKey:
+      process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim() ?? "",
+    clerkSignInUrl:
+      process.env.NEXT_PUBLIC_CLERK_SIGN_IN_URL?.trim() || "/sign-in",
+    clerkSignUpUrl:
+      process.env.NEXT_PUBLIC_CLERK_SIGN_UP_URL?.trim() || "/sign-up",
+    duoUseServerData: truthy(process.env.NEXT_PUBLIC_DUO_USE_SERVER_DATA),
+    duoSupabaseJwtExchange: truthy(
+      process.env.NEXT_PUBLIC_DUO_SUPABASE_JWT_EXCHANGE,
+    ),
+    supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() ?? "",
+    supabasePublishableKey:
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim() ?? "",
+    supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim() ?? "",
+  };
+}
+
+/** Use with {@link readDuoRuntimePublicEnv} or {@link useDuoRuntimeEnv} on the client. */
+export function computeDuoCloudClientConfigured(
+  env: DuoRuntimePublicEnv,
+): boolean {
+  return env.duoUseServerData && Boolean(env.clerkPublishableKey.trim());
+}
+
+export function computeDuoSupabaseJwtExchangeEnabled(
+  env: DuoRuntimePublicEnv,
+): boolean {
+  return env.duoSupabaseJwtExchange;
 }

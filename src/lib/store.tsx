@@ -11,7 +11,8 @@ import {
 } from "react";
 import * as duoActions from "@/app/actions/duo";
 import { runClerkSignOut } from "@/lib/clerk-signout-ref";
-import { duoCloudClientConfigured } from "@/lib/duo-cloud";
+import { computeDuoCloudClientConfigured } from "@/lib/duo-cloud";
+import { useDuoRuntimeEnv } from "@/lib/duo-runtime-env";
 import type {
   AppState,
   Cheer,
@@ -185,10 +186,16 @@ type StoreValue = {
 
 const StoreContext = createContext<StoreValue | null>(null);
 
-function DuoCloudHydration({ onHydrated }: { onHydrated: (s: AppState) => void }) {
+function DuoCloudHydration({
+  duoCloudActive,
+  onHydrated,
+}: {
+  duoCloudActive: boolean;
+  onHydrated: (s: AppState) => void;
+}) {
   const { userId, isLoaded } = useAuth();
   useEffect(() => {
-    if (!duoCloudClientConfigured() || !isLoaded || !userId) return;
+    if (!duoCloudActive || !isLoaded || !userId) return;
     let cancelled = false;
     void (async () => {
       const r = await duoActions.getBootstrapStateAction();
@@ -198,11 +205,14 @@ function DuoCloudHydration({ onHydrated }: { onHydrated: (s: AppState) => void }
     return () => {
       cancelled = true;
     };
-  }, [userId, isLoaded, onHydrated]);
+  }, [duoCloudActive, userId, isLoaded, onHydrated]);
   return null;
 }
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
+  const duoRuntime = useDuoRuntimeEnv();
+  const duoCloudActive = computeDuoCloudClientConfigured(duoRuntime);
+  const clerkAuthEnabled = Boolean(duoRuntime.clerkPublishableKey.trim());
   const [state, setState] = useState<AppState>(EMPTY);
   const [ready, setReady] = useState(false);
 
@@ -259,7 +269,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const createAccount = useCallback(
     async (p: { name: string; emoji: string; tone: QuoteTone }) => {
-      if (duoCloudClientConfigured()) {
+      if (duoCloudActive) {
         const r = await duoActions.provisionDuoUserAction(p);
         if (!r.ok) throw new Error(r.message);
         applyRemoteState(r.data);
@@ -278,7 +288,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setState((s) => ({ ...s, me }));
       return me;
     },
-    [applyRemoteState],
+    [applyRemoteState, duoCloudActive],
   );
 
   const signOut = useCallback(async () => {
@@ -288,11 +298,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     } catch {
       /* ignore */
     }
-    if (duoCloudClientConfigured()) await runClerkSignOut();
-  }, []);
+    if (clerkAuthEnabled) await runClerkSignOut();
+  }, [clerkAuthEnabled]);
 
   const createCouple = useCallback(async () => {
-    if (duoCloudClientConfigured()) {
+    if (duoCloudActive) {
       const r = await duoActions.createCoupleAction();
       if (!r.ok) throw new Error(r.message);
       applyRemoteState(r.data);
@@ -310,11 +320,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       return { ...s, couple: next };
     });
     return next!;
-  }, [applyRemoteState]);
+  }, [applyRemoteState, duoCloudActive]);
 
   const joinCouple = useCallback(
     async (code: string, partner?: Partial<Person>) => {
-      if (duoCloudClientConfigured()) {
+      if (duoCloudActive) {
         const r = await duoActions.joinCoupleAction(code);
         if (!r.ok) return null;
         applyRemoteState(r.data);
@@ -352,12 +362,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       });
       return next;
     },
-    [applyRemoteState],
+    [applyRemoteState, duoCloudActive],
   );
 
   const addPartner = useCallback(
     async (partner: { name: string; emoji: string }) => {
-      if (duoCloudClientConfigured()) return null;
+      if (duoCloudActive) return null;
       let next: Couple | null = null;
       setState((s) => {
         if (!s.me || !s.couple) return s;
@@ -386,12 +396,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       });
       return next;
     },
-    [],
+    [duoCloudActive],
   );
 
   const addHabit = useCallback(
     async (h: Omit<Habit, "id" | "ownerId" | "createdAt">) => {
-      if (duoCloudClientConfigured()) {
+      if (duoCloudActive) {
         const r = await duoActions.addHabitAction(h);
         if (!r.ok) throw new Error(r.message);
         applyRemoteState(r.data);
@@ -414,12 +424,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       });
       return created!;
     },
-    [applyRemoteState],
+    [applyRemoteState, duoCloudActive],
   );
 
   const removeHabit = useCallback(
     async (id: string) => {
-      if (duoCloudClientConfigured()) {
+      if (duoCloudActive) {
         const r = await duoActions.removeHabitAction(id);
         if (!r.ok) throw new Error(r.message);
         applyRemoteState(r.data);
@@ -431,12 +441,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         completions: s.completions.filter((c) => c.habitId !== id),
       }));
     },
-    [applyRemoteState],
+    [applyRemoteState, duoCloudActive],
   );
 
   const toggleCompletion = useCallback(
     async (habitId: string, userId: string, date = todayKey()) => {
-      if (duoCloudClientConfigured()) {
+      if (duoCloudActive) {
         const r = await duoActions.toggleCompletionAction({
           habitId,
           userId,
@@ -474,12 +484,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         return { ...s, completions, milestones };
       });
     },
-    [applyRemoteState],
+    [applyRemoteState, duoCloudActive],
   );
 
   const revivePartnerMiss = useCallback(
     async (args: { partnerId: string; habitId: string; date: string }) => {
-      if (duoCloudClientConfigured()) {
+      if (duoCloudActive) {
         const r = await duoActions.revivePartnerMissAction(args);
         if (!r.ok) return false;
         applyRemoteState(r.data);
@@ -548,12 +558,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       });
       return ok;
     },
-    [applyRemoteState],
+    [applyRemoteState, duoCloudActive],
   );
 
   const sendCheer = useCallback(
     async (toUserId: string, habitId?: string) => {
-      if (duoCloudClientConfigured()) {
+      if (duoCloudActive) {
         const r = await duoActions.sendCheerAction({ toUserId, habitId });
         if (!r.ok) throw new Error(r.message);
         applyRemoteState(r.data);
@@ -572,11 +582,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         return { ...s, cheers: [...s.cheers, cheer] };
       });
     },
-    [applyRemoteState],
+    [applyRemoteState, duoCloudActive],
   );
 
   const markCheersRead = useCallback(async () => {
-    if (duoCloudClientConfigured()) {
+    if (duoCloudActive) {
       const r = await duoActions.markCheersReadAction();
       if (!r.ok) throw new Error(r.message);
       applyRemoteState(r.data);
@@ -588,11 +598,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         s.me && c.toUserId === s.me.id ? { ...c, read: true } : c,
       ),
     }));
-  }, [applyRemoteState]);
+  }, [applyRemoteState, duoCloudActive]);
 
   const setTone = useCallback(
     async (tone: QuoteTone) => {
-      if (duoCloudClientConfigured()) {
+      if (duoCloudActive) {
         const r = await duoActions.setToneAction(tone);
         if (!r.ok) throw new Error(r.message);
         applyRemoteState(r.data);
@@ -600,12 +610,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       }
       setState((s) => (s.me ? { ...s, me: { ...s.me, tone } } : s));
     },
-    [applyRemoteState],
+    [applyRemoteState, duoCloudActive],
   );
 
   const setGrace = useCallback(
     async (enabled: boolean) => {
-      if (duoCloudClientConfigured()) {
+      if (duoCloudActive) {
         const r = await duoActions.setGraceAction(enabled);
         if (!r.ok) throw new Error(r.message);
         applyRemoteState(r.data);
@@ -615,11 +625,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         s.me ? { ...s, me: { ...s.me, graceEnabled: enabled } } : s,
       );
     },
-    [applyRemoteState],
+    [applyRemoteState, duoCloudActive],
   );
 
   const unlockTodayQuote = useCallback(async () => {
-    if (duoCloudClientConfigured()) {
+    if (duoCloudActive) {
       const r = await duoActions.unlockTodayQuoteAction();
       if (!r.ok) throw new Error(r.message);
       applyRemoteState(r.data);
@@ -647,11 +657,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       return { ...s, journal: [...s.journal, entry] };
     });
     return entry;
-  }, [applyRemoteState]);
+  }, [applyRemoteState, duoCloudActive]);
 
   const saveDayExcitement = useCallback(
     async (input: { stars: number; note: string }) => {
-      if (duoCloudClientConfigured()) {
+      if (duoCloudActive) {
         const r = await duoActions.saveDayExcitementAction(input);
         if (!r.ok) throw new Error(r.message);
         applyRemoteState(r.data);
@@ -702,7 +712,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         }).catch(() => {});
       }
     },
-    [applyRemoteState],
+    [applyRemoteState, duoCloudActive],
   );
 
   const resetAll = useCallback(() => setState(EMPTY), []);
@@ -752,8 +762,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <StoreContext.Provider value={value}>
-      {duoCloudClientConfigured() ? (
-        <DuoCloudHydration onHydrated={applyRemoteState} />
+      {duoCloudActive ? (
+        <DuoCloudHydration
+          duoCloudActive={duoCloudActive}
+          onHydrated={applyRemoteState}
+        />
       ) : null}
       {children}
     </StoreContext.Provider>

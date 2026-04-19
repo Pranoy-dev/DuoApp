@@ -8,13 +8,17 @@ import { MobileScreen } from "@/components/mobile/mobile-screen";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
-import { duoCloudClientConfigured } from "@/lib/duo-cloud";
+import { computeDuoCloudClientConfigured } from "@/lib/duo-cloud";
+import { useDuoRuntimeEnv } from "@/lib/duo-runtime-env";
 import { useStore } from "@/lib/store";
 import { habitIntent } from "@/lib/types";
 import { QUOTE_TONES } from "@/lib/quotes";
 import type { QuoteTone } from "@/lib/types";
 
 export default function SettingsPage() {
+  const duoRuntime = useDuoRuntimeEnv();
+  const duoCloudActive = computeDuoCloudClientConfigured(duoRuntime);
+  const clerkConfigured = Boolean(duoRuntime.clerkPublishableKey.trim());
   const {
     state,
     setTone,
@@ -68,10 +72,6 @@ export default function SettingsPage() {
   };
 
   const partner = couple?.members.find((m) => m.id !== me.id);
-
-  const clerkConfigured = Boolean(
-    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim(),
-  );
 
   return (
     <MobileScreen
@@ -195,7 +195,7 @@ export default function SettingsPage() {
                           emoji: "🌙",
                         });
                         if (!next) {
-                          if (duoCloudClientConfigured()) {
+                          if (duoCloudActive) {
                             toast("Share your invite link so your partner can join.");
                           }
                           return;

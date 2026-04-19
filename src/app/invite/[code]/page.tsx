@@ -6,7 +6,8 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { duoCloudClientConfigured } from "@/lib/duo-cloud";
+import { computeDuoCloudClientConfigured } from "@/lib/duo-cloud";
+import { useDuoRuntimeEnv } from "@/lib/duo-runtime-env";
 import { useStore } from "@/lib/store";
 
 type PageProps = { params: Promise<{ code: string }> };
@@ -24,6 +25,8 @@ function InviteSignInRedirect({ normalized }: { normalized: string }) {
 }
 
 export default function InviteLanding({ params }: PageProps) {
+  const duoRuntime = useDuoRuntimeEnv();
+  const duoCloudActive = computeDuoCloudClientConfigured(duoRuntime);
   const { code } = use(params);
   const normalized = (code ?? "").toUpperCase();
   const router = useRouter();
@@ -65,7 +68,7 @@ export default function InviteLanding({ params }: PageProps) {
 
   return (
     <div className="flex h-full flex-col safe-x">
-      {duoCloudClientConfigured() ? (
+      {duoCloudActive ? (
         <InviteSignInRedirect normalized={normalized} />
       ) : null}
       <div className="safe-top flex items-center justify-between py-4">

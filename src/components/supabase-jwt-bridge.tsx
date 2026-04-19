@@ -3,7 +3,8 @@
 import { useAuth } from "@clerk/nextjs";
 import { createBrowserClient } from "@supabase/ssr";
 import { useEffect, useRef } from "react";
-import { publicDuoSupabaseJwtExchangeEnabled } from "@/lib/duo-cloud";
+import { computeDuoSupabaseJwtExchangeEnabled } from "@/lib/duo-cloud";
+import { useDuoRuntimeEnv } from "@/lib/duo-runtime-env";
 
 /**
  * Phase 2: exchange Clerk session for Supabase Auth so browser PostgREST
@@ -11,16 +12,22 @@ import { publicDuoSupabaseJwtExchangeEnabled } from "@/lib/duo-cloud";
  * third-party auth configuration.
  */
 export function SupabaseJwtBridge() {
+  const runtime = useDuoRuntimeEnv();
   const { getToken, isLoaded, userId } = useAuth();
   const clientRef = useRef<ReturnType<typeof createBrowserClient> | null>(null);
 
   useEffect(() => {
-    if (!publicDuoSupabaseJwtExchangeEnabled() || !isLoaded || !userId) return;
+    if (
+      !computeDuoSupabaseJwtExchangeEnabled(runtime) ||
+      !isLoaded ||
+      !userId
+    ) {
+      return;
+    }
 
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const url = runtime.supabaseUrl;
     const key =
-      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+      runtime.supabasePublishableKey || runtime.supabaseAnonKey;
     if (!url || !key) return;
 
     if (!clientRef.current) {
@@ -45,7 +52,7 @@ export function SupabaseJwtBridge() {
     return () => {
       cancelled = true;
     };
-  }, [getToken, isLoaded, userId]);
+  }, [getToken, isLoaded, userId, runtime]);
 
   return null;
 }
