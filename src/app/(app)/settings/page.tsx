@@ -1,15 +1,20 @@
 "use client";
 
 import { UserButton } from "@clerk/nextjs";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Copy, Share2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { MobileScreen } from "@/components/mobile/mobile-screen";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
-import { computeDuoCloudClientConfigured } from "@/lib/duo-cloud";
+import {
+  computeDeferredHybridCoupleServerEnabled,
+  computeDeferredSnapshotClientEnabled,
+  computeDuoCloudClientConfigured,
+} from "@/lib/duo-cloud";
 import { useDuoRuntimeEnv } from "@/lib/duo-runtime-env";
+import { readSyncMeta } from "@/lib/duo-sync";
 import { useStore } from "@/lib/store";
 import { habitIntent } from "@/lib/types";
 import { QUOTE_TONES } from "@/lib/quotes";
@@ -18,7 +23,12 @@ import type { QuoteTone } from "@/lib/types";
 export default function SettingsPage() {
   const duoRuntime = useDuoRuntimeEnv();
   const duoCloudActive = computeDuoCloudClientConfigured(duoRuntime);
+  const hybridCouple = computeDeferredHybridCoupleServerEnabled(duoRuntime);
+  const deferredSnapshot =
+    computeDeferredSnapshotClientEnabled(duoRuntime) && !duoCloudActive;
   const clerkConfigured = Boolean(duoRuntime.clerkPublishableKey.trim());
+  const [syncUiTick, setSyncUiTick] = useState(0);
+  const syncMeta = useMemo(() => readSyncMeta(), [syncUiTick]);
   const {
     state,
     setTone,
@@ -195,7 +205,7 @@ export default function SettingsPage() {
                           emoji: "🌙",
                         });
                         if (!next) {
-                          if (duoCloudActive) {
+                          if (duoCloudActive || hybridCouple) {
                             toast("Share your invite link so your partner can join.");
                           }
                           return;
@@ -213,6 +223,36 @@ export default function SettingsPage() {
           </>
         )}
       </section>
+
+      {deferredSnapshot ? (
+        <>
+          <SectionLabel>Cloud backup</SectionLabel>
+          <section className="mb-4 overflow-hidden rounded-2xl border border-border/60 bg-card/80 p-3.5">
+            <p className="text-[13px] font-semibold">Supabase snapshot</p>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Habits stay on this device for speed; we push a full backup on a
+              daily timer, when you return to the app, or when you tap sync.
+            </p>
+            <Button
+              size="sm"
+              className="mt-3 h-9 rounded-full px-4 text-xs"
+              onClick={() => {
+                window.dispatchEvent(new CustomEvent("duo:deferred-sync-now"));
+                setSyncUiTick((t) => t + 1);
+                toast("Sync queued");
+              }}
+            >
+              Sync now
+            </Button>
+            <p className="mt-2 text-[11px] text-muted-foreground" key={syncUiTick}>
+              Last pushed:{" "}
+              {syncMeta.lastSyncedAt
+                ? new Date(syncMeta.lastSyncedAt).toLocaleString()
+                : "Not yet"}
+            </p>
+          </section>
+        </>
+      ) : null}
 
       <SectionLabel>Preferences</SectionLabel>
       <section className="mb-4 overflow-hidden rounded-2xl border border-border/60 bg-card/80">

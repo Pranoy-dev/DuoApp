@@ -43,9 +43,17 @@ Optional paths (defaults match this repo):
 - `NEXT_PUBLIC_CLERK_SIGN_IN_URL` (default `/sign-in`)
 - `NEXT_PUBLIC_CLERK_SIGN_UP_URL` (default `/sign-up`)
 
-For server-backed habits/sync (see `.env.example`):
+For **live** server-backed habits (every tap syncs via Server Actions; slower on mobile networks):
 
 - `NEXT_PUBLIC_DUO_USE_SERVER_DATA=1` plus Supabase URL, keys, and `SUPABASE_SERVICE_ROLE_KEY`
+
+For **fast local-first** (recommended on phones): keep `NEXT_PUBLIC_DUO_USE_SERVER_DATA` unset or `0`, then enable deferred snapshot backup:
+
+- Same Supabase + Clerk secrets as above
+- `NEXT_PUBLIC_DUO_DEFERRED_SNAPSHOT_SYNC=1`
+- Run the SQL migration [`supabase/migrations/0006_duo_deferred_snapshots.sql`](supabase/migrations/0006_duo_deferred_snapshots.sql) on your Supabase project
+
+With deferred sync, Duo keeps the full state in **localStorage**, provisions the user/couple on the server during onboarding, and **pushes one JSON snapshot** per Clerk user on a **daily** timer, when you return to the tab (online), or from **Settings → Sync now**. Partner data can lag until the next push or pull (server wins on pull when newer).
 
 In the **Clerk dashboard**, add your deployment origin (for example `https://<project>.vercel.app` and any custom domain) so sign-in works in production.
 

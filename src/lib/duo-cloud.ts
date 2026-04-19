@@ -13,13 +13,29 @@ export function publicDuoCloudDataEnabled(): boolean {
   return truthy(process.env.NEXT_PUBLIC_DUO_USE_SERVER_DATA);
 }
 
-/** Server only: full stack available for Server Actions. */
-export function serverDuoCloudDataEnabled(): boolean {
-  if (!publicDuoCloudDataEnabled()) return false;
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+/** Clerk secret + Supabase URL + service role (shared by live sync and deferred snapshot). */
+export function serverDuoServiceStackConfigured(): boolean {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
   const sr = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
   const clerk = process.env.CLERK_SECRET_KEY?.trim();
   return Boolean(url && sr && clerk);
+}
+
+/** Server only: per-action Server Actions + live Supabase (NEXT_PUBLIC_DUO_USE_SERVER_DATA=1). */
+export function serverDuoCloudDataEnabled(): boolean {
+  if (!publicDuoCloudDataEnabled()) return false;
+  return serverDuoServiceStackConfigured();
+}
+
+/**
+ * Deferred snapshot sync: local-first UI, batch push/pull to Supabase without
+ * NEXT_PUBLIC_DUO_USE_SERVER_DATA. Requires service stack + public flag.
+ */
+export function serverDeferredSnapshotSyncEnabled(): boolean {
+  return (
+    truthy(process.env.NEXT_PUBLIC_DUO_DEFERRED_SNAPSHOT_SYNC) &&
+    serverDuoServiceStackConfigured()
+  );
 }
 
 /** Phase 2: exchange Clerk token for Supabase session (optional). */
@@ -37,6 +53,8 @@ export type DuoRuntimePublicEnv = {
   clerkSignInUrl: string;
   clerkSignUpUrl: string;
   duoUseServerData: boolean;
+  /** Local-first + nightly/visibility snapshot push to Supabase (see README). */
+  duoDeferredSnapshotSync: boolean;
   duoSupabaseJwtExchange: boolean;
   supabaseUrl: string;
   supabasePublishableKey: string;
@@ -52,6 +70,9 @@ export function readDuoRuntimePublicEnv(): DuoRuntimePublicEnv {
     clerkSignUpUrl:
       process.env.NEXT_PUBLIC_CLERK_SIGN_UP_URL?.trim() || "/sign-up",
     duoUseServerData: truthy(process.env.NEXT_PUBLIC_DUO_USE_SERVER_DATA),
+    duoDeferredSnapshotSync: truthy(
+      process.env.NEXT_PUBLIC_DUO_DEFERRED_SNAPSHOT_SYNC,
+    ),
     duoSupabaseJwtExchange: truthy(
       process.env.NEXT_PUBLIC_DUO_SUPABASE_JWT_EXCHANGE,
     ),
@@ -73,4 +94,24 @@ export function computeDuoSupabaseJwtExchangeEnabled(
   env: DuoRuntimePublicEnv,
 ): boolean {
   return env.duoSupabaseJwtExchange;
+}
+
+/** Client: deferred snapshot mode is on (server still needs service stack). */
+export function computeDeferredSnapshotClientEnabled(
+  env: DuoRuntimePublicEnv,
+): boolean {
+  return env.duoDeferredSnapshotSync && Boolean(env.clerkPublishableKey.trim());
+}
+
+/**
+ * Use server for provision / create couple / join only while habits stay local
+ * (deferred snapshot on, live NEXT_PUBLIC_DUO_USE_SERVER_DATA off).
+ */
+export function computeDeferredHybridCoupleServerEnabled(
+  env: DuoRuntimePublicEnv,
+): boolean {
+  return (
+    computeDeferredSnapshotClientEnabled(env) &&
+    !computeDuoCloudClientConfigured(env)
+  );
 }

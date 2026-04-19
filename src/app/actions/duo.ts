@@ -2,7 +2,10 @@
 
 import { auth } from "@clerk/nextjs/server";
 import type { AppState, Habit, QuoteTone } from "@/lib/types";
-import { serverDuoCloudDataEnabled } from "@/lib/duo-cloud";
+import {
+  serverDeferredSnapshotSyncEnabled,
+  serverDuoCloudDataEnabled,
+} from "@/lib/duo-cloud";
 import {
   DuoActionError,
   requireClerkUserId,
@@ -590,6 +593,76 @@ export async function setGraceAction(enabled: boolean): Promise<DuoActionResult<
     if (error) return { ok: false, code: "db", message: error.message };
     const state = await getAppStateForClerkId(ctx.clerkId);
     return { ok: true, data: state! };
+  } catch (e) {
+    return err(e);
+  }
+}
+
+export type DeferredSnapshotPayload = {
+  state: AppState;
+  updatedAt: string;
+};
+
+/** Upsert full client AppState for the signed-in Clerk user (local-first mode). */
+export async function pushDeferredSnapshotAction(
+  payloadJson: string,
+): Promise<DuoActionResult<{ updatedAt: string }>> {
+  try {
+    if (!serverDeferredSnapshotSyncEnabled()) {
+      return {
+        ok: false,
+        code: "not_configured",
+        message: "Deferred snapshot sync is not enabled",
+      };
+    }
+    const clerkId = await requireClerkUserId();
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(payloadJson) as unknown;
+    } catch {
+      return { ok: false, code: "bad_request", message: "Invalid JSON" };
+    }
+    const supabase = getServiceSupabase()!;
+    const updatedAt = new Date().toISOString();
+    const { error } = await supabase.from("duo_deferred_snapshots").upsert(
+      {
+        clerk_id: clerkId,
+        payload: parsed,
+        updated_at: updatedAt,
+      },
+      { onConflict: "clerk_id" },
+    );
+    if (error) return { ok: false, code: "db", message: error.message };
+    return { ok: true, data: { updatedAt } };
+  } catch (e) {
+    return err(e);
+  }
+}
+
+/** Latest snapshot for merge (server wins when newer than local meta). */
+export async function pullDeferredSnapshotAction(): Promise<
+  DuoActionResult<DeferredSnapshotPayload | null>
+> {
+  try {
+    if (!serverDeferredSnapshotSyncEnabled()) {
+      return { ok: true, data: null };
+    }
+    const clerkId = await requireClerkUserId();
+    const supabase = getServiceSupabase()!;
+    const { data, error } = await supabase
+      .from("duo_deferred_snapshots")
+      .select("payload, updated_at")
+      .eq("clerk_id", clerkId)
+      .maybeSingle();
+    if (error) return { ok: false, code: "db", message: error.message };
+    if (!data?.payload) return { ok: true, data: null };
+    return {
+      ok: true,
+      data: {
+        state: data.payload as AppState,
+        updatedAt: data.updated_at as string,
+      },
+    };
   } catch (e) {
     return err(e);
   }

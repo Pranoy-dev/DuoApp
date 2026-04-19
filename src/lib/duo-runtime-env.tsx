@@ -8,6 +8,7 @@ const defaultEnv: DuoRuntimePublicEnv = {
   clerkSignInUrl: "/sign-in",
   clerkSignUpUrl: "/sign-up",
   duoUseServerData: false,
+  duoDeferredSnapshotSync: false,
   duoSupabaseJwtExchange: false,
   supabaseUrl: "",
   supabasePublishableKey: "",

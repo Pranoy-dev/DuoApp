@@ -13,6 +13,18 @@ if (process.env.VERCEL === "1") {
       "[Duo/Vercel] CLERK_SECRET_KEY is set but NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY is missing — ClerkProvider will not mount. Add NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY for this environment and redeploy.",
     );
   }
+  const deferred = process.env.NEXT_PUBLIC_DUO_DEFERRED_SNAPSHOT_SYNC?.trim();
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const sr = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  if (
+    deferred &&
+    (deferred === "1" || deferred.toLowerCase() === "true") &&
+    (!url || !sr || !sk)
+  ) {
+    console.warn(
+      "[Duo/Vercel] NEXT_PUBLIC_DUO_DEFERRED_SNAPSHOT_SYNC is on but Supabase URL, SUPABASE_SERVICE_ROLE_KEY, or CLERK_SECRET_KEY is missing — snapshot sync will not run.",
+    );
+  }
 }
 
 const nextConfig: NextConfig = {
