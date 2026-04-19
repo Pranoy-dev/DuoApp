@@ -15,10 +15,22 @@ export function publicDuoCloudDataEnabled(): boolean {
 
 /** Clerk secret + Supabase URL + service role (shared by live sync and deferred snapshot). */
 export function serverDuoServiceStackConfigured(): boolean {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
-  const sr = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
-  const clerk = process.env.CLERK_SECRET_KEY?.trim();
-  return Boolean(url && sr && clerk);
+  return duoServiceStackMissingEnvNames().length === 0;
+}
+
+/** Env names missing for the Supabase service client (pairing, habits sync, etc.). */
+export function duoServiceStackMissingEnvNames(): string[] {
+  const missing: string[] = [];
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()) {
+    missing.push("NEXT_PUBLIC_SUPABASE_URL");
+  }
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()) {
+    missing.push("SUPABASE_SERVICE_ROLE_KEY");
+  }
+  if (!process.env.CLERK_SECRET_KEY?.trim()) {
+    missing.push("CLERK_SECRET_KEY");
+  }
+  return missing;
 }
 
 /** Server only: per-action Server Actions + live Supabase (NEXT_PUBLIC_DUO_USE_SERVER_DATA=1). */

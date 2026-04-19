@@ -1,6 +1,9 @@
 import { auth } from "@clerk/nextjs/server";
 import { getServiceSupabase } from "@/lib/server/supabase-admin";
-import { serverDuoServiceStackConfigured } from "@/lib/duo-cloud";
+import {
+  duoServiceStackMissingEnvNames,
+  serverDuoServiceStackConfigured,
+} from "@/lib/duo-cloud";
 
 export class DuoActionError extends Error {
   constructor(
@@ -14,7 +17,12 @@ export class DuoActionError extends Error {
 
 export async function requireClerkUserId(): Promise<string> {
   if (!serverDuoServiceStackConfigured()) {
-    throw new DuoActionError("Cloud data is not configured", "not_configured");
+    const missing = duoServiceStackMissingEnvNames();
+    const detail =
+      missing.length > 0
+        ? `Pairing needs these on the server (e.g. Vercel → Environment Variables for this environment): ${missing.join(", ")}. Save, redeploy, then hard-refresh this page (Shift+Reload).`
+        : "Server environment could not be validated. Redeploy after fixing environment variables.";
+    throw new DuoActionError(detail, "not_configured");
   }
   const { userId } = await auth();
   if (!userId) throw new DuoActionError("Sign in required", "unauthorized");
@@ -32,7 +40,12 @@ export async function requireDuoContext(): Promise<DuoContext> {
   const clerkId = await requireClerkUserId();
   const supabase = getServiceSupabase();
   if (!supabase) {
-    throw new DuoActionError("Cloud data is not configured", "not_configured");
+    const missing = duoServiceStackMissingEnvNames();
+    const detail =
+      missing.length > 0
+        ? `Supabase admin client is unavailable. Missing: ${missing.join(", ")}.`
+        : "Supabase admin client is unavailable.";
+    throw new DuoActionError(detail, "not_configured");
   }
 
   const { data: userRow, error: userErr } = await supabase

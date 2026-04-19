@@ -421,11 +421,7 @@ function StoreProviderCore({
             }
             return null;
           }
-          if (r.code === "not_configured") {
-            throw new Error(
-              "Server could not load Duo’s database. On the host (e.g. Vercel), set NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and CLERK_SECRET_KEY, then redeploy.",
-            );
-          }
+          // Use server message (lists missing env on Vercel, etc.) so older cached UI still shows useful text.
           throw new Error(r.message);
         }
       }
