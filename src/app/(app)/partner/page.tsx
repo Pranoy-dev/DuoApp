@@ -1,9 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect } from "react";
 import { toast } from "sonner";
 import { MobileScreen } from "@/components/mobile/mobile-screen";
 import { Button } from "@/components/ui/button";
+import { computeDuoCloudClientConfigured } from "@/lib/duo-cloud";
+import { useDuoRuntimeEnv } from "@/lib/duo-runtime-env";
 import { useStore } from "@/lib/store";
 import { streakFor } from "@/lib/streak";
 import { habitIntent } from "@/lib/types";
@@ -12,6 +15,7 @@ import { cn } from "@/lib/utils";
 
 const TIMELINE_DAYS = 14;
 const MAX_REVIVES = 3;
+const PARTNER_POLL_MS = 12_000;
 
 function possessiveFirst(fullName: string): string {
   const first = fullName.split(" ")[0] || fullName;
@@ -28,10 +32,51 @@ function dateKeysLastNDays(n: number): string[] {
 }
 
 export default function PartnerPage() {
-  const { state, revivePartnerMiss } = useStore();
+  const duoRuntime = useDuoRuntimeEnv();
+  const duoCloudActive = computeDuoCloudClientConfigured(duoRuntime);
+  const { state, revivePartnerMiss, refreshBootstrapFromServer } = useStore();
   const me = state.me!;
   const couple = state.couple;
   const partner = couple?.members.find((m) => m.id !== me.id);
+
+  useEffect(() => {
+    if (!duoCloudActive || !couple?.id || !partner?.id) return;
+    void refreshBootstrapFromServer();
+  }, [
+    duoCloudActive,
+    couple?.id,
+    partner?.id,
+    refreshBootstrapFromServer,
+  ]);
+
+  useEffect(() => {
+    if (!duoCloudActive || !couple?.id || !partner?.id) return;
+    const id = window.setInterval(() => {
+      void refreshBootstrapFromServer();
+    }, PARTNER_POLL_MS);
+    return () => window.clearInterval(id);
+  }, [
+    duoCloudActive,
+    couple?.id,
+    partner?.id,
+    refreshBootstrapFromServer,
+  ]);
+
+  useEffect(() => {
+    if (!duoCloudActive || !couple?.id || !partner?.id) return;
+    const onVis = () => {
+      if (document.visibilityState === "visible") {
+        void refreshBootstrapFromServer();
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [
+    duoCloudActive,
+    couple?.id,
+    partner?.id,
+    refreshBootstrapFromServer,
+  ]);
 
   if (!couple || !partner) {
     return (

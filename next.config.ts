@@ -25,6 +25,16 @@ if (process.env.VERCEL === "1") {
       "[Duo/Vercel] NEXT_PUBLIC_DUO_DEFERRED_SNAPSHOT_SYNC is on but Supabase URL, SUPABASE_SERVICE_ROLE_KEY, or CLERK_SECRET_KEY is missing — snapshot sync will not run.",
     );
   }
+  const serverInvites = process.env.NEXT_PUBLIC_DUO_SERVER_INVITES?.trim();
+  if (
+    serverInvites &&
+    (serverInvites === "1" || serverInvites.toLowerCase() === "true") &&
+    (!url || !sr || !sk)
+  ) {
+    console.warn(
+      "[Duo/Vercel] NEXT_PUBLIC_DUO_SERVER_INVITES is on but Supabase URL, SUPABASE_SERVICE_ROLE_KEY, or CLERK_SECRET_KEY is missing — server pairing will not run.",
+    );
+  }
 }
 
 const nextConfig: NextConfig = {

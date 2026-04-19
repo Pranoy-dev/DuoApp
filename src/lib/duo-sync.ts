@@ -68,3 +68,12 @@ export function clearSyncMetaStorage(): void {
 
 /** One day in ms — background flush interval. */
 export const DEFERRED_SYNC_INTERVAL_MS = 86_400_000;
+
+/** Mark dirty and flush deferred snapshot on the next microtask (after React state commits). */
+export function requestDeferredSnapshotFlushSoon(): void {
+  if (typeof window === "undefined") return;
+  markSyncDirty();
+  queueMicrotask(() => {
+    window.dispatchEvent(new CustomEvent("duo:deferred-sync-now"));
+  });
+}

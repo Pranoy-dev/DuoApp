@@ -3,6 +3,7 @@ import { getServiceSupabase } from "@/lib/server/supabase-admin";
 import {
   serverDeferredSnapshotSyncEnabled,
   serverDuoCloudDataEnabled,
+  serverInvitePairingEnabled,
 } from "@/lib/duo-cloud";
 
 export class DuoActionError extends Error {
@@ -16,7 +17,11 @@ export class DuoActionError extends Error {
 }
 
 export async function requireClerkUserId(): Promise<string> {
-  if (!serverDuoCloudDataEnabled() && !serverDeferredSnapshotSyncEnabled()) {
+  if (
+    !serverDuoCloudDataEnabled() &&
+    !serverDeferredSnapshotSyncEnabled() &&
+    !serverInvitePairingEnabled()
+  ) {
     throw new DuoActionError("Cloud data is not configured", "not_configured");
   }
   const { userId } = await auth();

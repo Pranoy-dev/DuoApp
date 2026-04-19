@@ -38,6 +38,14 @@ export function serverDeferredSnapshotSyncEnabled(): boolean {
   );
 }
 
+/** Invite rows in Supabase without full habit sync or deferred snapshots (pairing only). */
+export function serverInvitePairingEnabled(): boolean {
+  return (
+    truthy(process.env.NEXT_PUBLIC_DUO_SERVER_INVITES) &&
+    serverDuoServiceStackConfigured()
+  );
+}
+
 /** Phase 2: exchange Clerk token for Supabase session (optional). */
 export function publicDuoSupabaseJwtExchangeEnabled(): boolean {
   return truthy(process.env.NEXT_PUBLIC_DUO_SUPABASE_JWT_EXCHANGE);
@@ -55,6 +63,8 @@ export type DuoRuntimePublicEnv = {
   duoUseServerData: boolean;
   /** Local-first + nightly/visibility snapshot push to Supabase (see README). */
   duoDeferredSnapshotSync: boolean;
+  /** Write couples/invites to Supabase for cross-device join without live habit sync. */
+  duoServerInvites: boolean;
   duoSupabaseJwtExchange: boolean;
   supabaseUrl: string;
   supabasePublishableKey: string;
@@ -73,6 +83,7 @@ export function readDuoRuntimePublicEnv(): DuoRuntimePublicEnv {
     duoDeferredSnapshotSync: truthy(
       process.env.NEXT_PUBLIC_DUO_DEFERRED_SNAPSHOT_SYNC,
     ),
+    duoServerInvites: truthy(process.env.NEXT_PUBLIC_DUO_SERVER_INVITES),
     duoSupabaseJwtExchange: truthy(
       process.env.NEXT_PUBLIC_DUO_SUPABASE_JWT_EXCHANGE,
     ),
@@ -114,4 +125,18 @@ export function computeDeferredHybridCoupleServerEnabled(
     computeDeferredSnapshotClientEnabled(env) &&
     !computeDuoCloudClientConfigured(env)
   );
+}
+
+/**
+ * Use Supabase Server Actions for provision / create couple / join (so invite
+ * codes exist in `invites` for the other device). True for live cloud, hybrid
+ * deferred, or {@link DuoRuntimePublicEnv.duoServerInvites} only.
+ */
+export function computeServerCoupleActionsEnabled(
+  env: DuoRuntimePublicEnv,
+): boolean {
+  if (computeDuoCloudClientConfigured(env)) return true;
+  const clerk = Boolean(env.clerkPublishableKey.trim());
+  if (!clerk || env.duoUseServerData) return false;
+  return Boolean(env.duoDeferredSnapshotSync || env.duoServerInvites);
 }

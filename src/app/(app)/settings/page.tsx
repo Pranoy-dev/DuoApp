@@ -11,7 +11,6 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import {
-  computeDeferredHybridCoupleServerEnabled,
   computeDeferredSnapshotClientEnabled,
   computeDuoCloudClientConfigured,
 } from "@/lib/duo-cloud";
@@ -25,7 +24,6 @@ import type { QuoteTone } from "@/lib/types";
 export default function SettingsPage() {
   const duoRuntime = useDuoRuntimeEnv();
   const duoCloudActive = computeDuoCloudClientConfigured(duoRuntime);
-  const hybridCouple = computeDeferredHybridCoupleServerEnabled(duoRuntime);
   const deferredSnapshot =
     computeDeferredSnapshotClientEnabled(duoRuntime) && !duoCloudActive;
   const clerkConfigured = Boolean(duoRuntime.clerkPublishableKey.trim());
