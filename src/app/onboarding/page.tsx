@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
+import { Copy, Share2 } from "lucide-react";
 import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +25,10 @@ export default function OnboardingPage() {
   const [tone, setTone] = useState<QuoteTone>("stoic");
   const [pairMode, setPairMode] = useState<"create" | "join" | null>(null);
   const [code, setCode] = useState("");
+  const [inviteLink, setInviteLink] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
+  const [inviteReady, setInviteReady] = useState(false);
+  const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const finish = async (options?: { code?: string | null }) => {
@@ -42,6 +47,56 @@ export default function OnboardingPage() {
       router.replace("/today");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
+    }
+  };
+
+  const buildInviteLink = (nextInviteCode: string): string => {
+    if (typeof window === "undefined") return `/invite/${nextInviteCode}`;
+    return `${window.location.origin}/invite/${nextInviteCode}`;
+  };
+
+  const startInviteFlow = async () => {
+    setError(null);
+    setWorking(true);
+    try {
+      await createAccount({ name: name.trim() || "You", emoji, tone });
+      const couple = await createCouple();
+      setInviteCode(couple.inviteCode);
+      setInviteLink(buildInviteLink(couple.inviteCode));
+      setInviteReady(true);
+      setStep("invite");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not create invite link.");
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const copyInviteLink = async () => {
+    if (!inviteLink) return;
+    try {
+      await navigator.clipboard.writeText(inviteLink);
+    } catch {
+      setError("Could not copy link automatically. Long-press and copy it.");
+    }
+  };
+
+  const shareInviteLink = async () => {
+    if (!inviteLink) return;
+    const nav = typeof navigator !== "undefined" ? navigator : null;
+    const canShare = nav && "share" in nav;
+    if (!canShare) {
+      await copyInviteLink();
+      return;
+    }
+    try {
+      await (nav as Navigator & { share: (d: ShareData) => Promise<void> }).share({
+        title: "Join my Duo pair",
+        text: "Tap this link to join my Duo pair.",
+        url: inviteLink,
+      });
+    } catch {
+      // user cancelled or share failed; keep flow uninterrupted
     }
   };
 
@@ -205,29 +260,80 @@ export default function OnboardingPage() {
 
             {step === "invite" && (
               <StepFrame key="invite">
-                <StepHeader
-                  eyebrow="Almost there"
-                  title="Enter the code"
-                  blurb="Ask your partner to share it from Settings on their phone."
-                />
-                <div className="mt-6 pb-4">
-                  <Label htmlFor="code">Invite code</Label>
-                  <Input
-                    id="code"
-                    value={code}
-                    onChange={(e) => {
-                      setCode(e.target.value.toUpperCase());
-                      setError(null);
-                    }}
-                    placeholder="ABC123"
-                    className="mt-1.5 h-14 rounded-2xl text-center font-mono text-2xl tracking-[0.3em]"
-                    maxLength={8}
-                    autoFocus
-                  />
-                  {error && (
-                    <p className="mt-2 text-sm text-destructive">{error}</p>
-                  )}
-                </div>
+                {pairMode === "create" ? (
+                  <>
+                    <StepHeader
+                      eyebrow="Share this link"
+                      title="Invite your partner"
+                      blurb="Send this deep link. Whoever opens it will join your pair directly."
+                    />
+                    <div className="mt-6 pb-4">
+                      <Label htmlFor="invite-link">Invite link</Label>
+                      <Input
+                        id="invite-link"
+                        value={inviteLink}
+                        readOnly
+                        className="mt-1.5 h-12 rounded-2xl text-sm"
+                      />
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Code:{" "}
+                        <span className="font-mono tracking-wider text-foreground">
+                          {inviteCode || "—"}
+                        </span>
+                      </p>
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          className="h-10 rounded-xl"
+                          onClick={() => void copyInviteLink()}
+                          disabled={!inviteReady}
+                        >
+                          <Copy className="mr-1.5 size-4" />
+                          Copy link
+                        </Button>
+                        <Button
+                          type="button"
+                          className="h-10 rounded-xl"
+                          onClick={() => void shareInviteLink()}
+                          disabled={!inviteReady}
+                        >
+                          <Share2 className="mr-1.5 size-4" />
+                          Share
+                        </Button>
+                      </div>
+                      {error && (
+                        <p className="mt-2 text-sm text-destructive">{error}</p>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <StepHeader
+                      eyebrow="Almost there"
+                      title="Enter the code"
+                      blurb="Ask your partner to share it from Settings on their phone."
+                    />
+                    <div className="mt-6 pb-4">
+                      <Label htmlFor="code">Invite code</Label>
+                      <Input
+                        id="code"
+                        value={code}
+                        onChange={(e) => {
+                          setCode(e.target.value.toUpperCase());
+                          setError(null);
+                        }}
+                        placeholder="ABC123"
+                        className="mt-1.5 h-14 rounded-2xl text-center font-mono text-2xl tracking-[0.3em]"
+                        maxLength={8}
+                        autoFocus
+                      />
+                      {error && (
+                        <p className="mt-2 text-sm text-destructive">{error}</p>
+                      )}
+                    </div>
+                  </>
+                )}
               </StepFrame>
             )}
           </AnimatePresence>
@@ -267,22 +373,25 @@ export default function OnboardingPage() {
               size="lg"
               className="h-12 w-full rounded-2xl text-base"
               onClick={() => {
-                if (pairMode === "create") void finish();
+                if (pairMode === "create") void startInviteFlow();
                 else if (pairMode === "join") setStep("invite");
               }}
-              disabled={!pairMode}
+              disabled={!pairMode || working}
             >
-              Continue
+              {working ? "Preparing link..." : "Continue"}
             </Button>
           )}
           {step === "invite" && (
             <Button
               size="lg"
               className="h-12 w-full rounded-2xl text-base"
-              onClick={() => void finish({ code })}
-              disabled={code.length < 4}
+              onClick={() => {
+                if (pairMode === "create") router.replace("/today");
+                else void finish({ code });
+              }}
+              disabled={pairMode === "join" ? code.length < 4 : !inviteReady}
             >
-              Join pair
+              {pairMode === "create" ? "Done" : "Join pair"}
             </Button>
           )}
         </div>

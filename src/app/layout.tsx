@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { readDuoRuntimePublicEnv } from "@/lib/duo-cloud";
 import { DuoRuntimeEnvProvider } from "@/lib/duo-runtime-env";
 import { DeferredSnapshotSync } from "@/components/deferred-snapshot-sync";
+import { CompletionRealtimeSync } from "@/components/completion-realtime-sync";
 import { StoreProvider } from "@/lib/store";
 import { CheerBurst } from "@/components/mobile/cheer-burst";
 import { MilestoneOverlay } from "@/components/mobile/milestone-overlay";
@@ -58,6 +59,7 @@ export default function RootLayout({
   const shell = (
     <StoreProvider>
       <DeferredSnapshotSync />
+      {clerkPk ? <CompletionRealtimeSync /> : null}
       <main className="phone-frame flex min-h-0 flex-col">{children}</main>
       <CheerBurst />
       <MilestoneOverlay />

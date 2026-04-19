@@ -247,11 +247,28 @@ function habitVisibleTo(h: Habit, userUuid: string): boolean {
   return h.visibility === "shared" || h.ownerId === userUuid;
 }
 
+export type CompletionMutationAction = "done" | "undone";
+
+export type CompletionMutationData = {
+  state: AppState;
+  mutation: {
+    operationId: string;
+    applied: boolean;
+    action: CompletionMutationAction;
+    serverUpdatedAt: string;
+    serverVersion: number;
+  };
+};
+
 export async function toggleCompletionAction(input: {
   habitId: string;
   userId: string;
   date?: string;
-}): Promise<DuoActionResult<AppState>> {
+  action?: CompletionMutationAction;
+  operationId?: string;
+  clientTimestamp?: string;
+  deviceId?: string;
+}): Promise<DuoActionResult<CompletionMutationData>> {
   try {
     const ctx = await requireDuoContext();
     if (!ctx.coupleId) {
@@ -277,27 +294,87 @@ export async function toggleCompletionAction(input: {
       return { ok: false, code: "unauthorized", message: "Cannot toggle for others" };
     }
 
+    const operationId = input.operationId?.trim() || crypto.randomUUID();
     const { data: existing } = await supabase
       .from("habit_completions")
-      .select("id")
+      .select("id, deleted_at, operation_id, version")
       .eq("habit_id", input.habitId)
       .eq("user_id", input.userId)
       .eq("date", date)
       .maybeSingle();
 
-    if (existing?.id) {
-      const { error: delErr } = await supabase
-        .from("habit_completions")
-        .delete()
-        .eq("id", existing.id);
-      if (delErr) return { ok: false, code: "db", message: delErr.message };
-    } else {
-      const { error: insErr } = await supabase.from("habit_completions").insert({
-        habit_id: input.habitId,
-        user_id: input.userId,
-        date,
-      });
-      if (insErr) return { ok: false, code: "db", message: insErr.message };
+    if (existing?.operation_id === operationId) {
+      const state = await getAppStateForClerkId(ctx.clerkId);
+      return {
+        ok: true,
+        data: {
+          state: state!,
+          mutation: {
+            operationId,
+            applied: false,
+            action: input.action ?? "done",
+            serverUpdatedAt: new Date().toISOString(),
+            serverVersion: Number(existing.version ?? 1),
+          },
+        },
+      };
+    }
+
+    const currentlyDone = Boolean(existing?.id && !existing.deleted_at);
+    const desiredAction: CompletionMutationAction =
+      input.action ?? (currentlyDone ? "undone" : "done");
+    const shouldBeDone = desiredAction === "done";
+    const applied = currentlyDone !== shouldBeDone;
+    const serverUpdatedAt = new Date().toISOString();
+    let serverVersion = Number(existing?.version ?? 0);
+
+    if (!applied) {
+      const state = await getAppStateForClerkId(ctx.clerkId);
+      return {
+        ok: true,
+        data: {
+          state: state!,
+          mutation: {
+            operationId,
+            applied: false,
+            action: desiredAction,
+            serverUpdatedAt,
+            serverVersion: Number(existing?.version ?? 1),
+          },
+        },
+      };
+    }
+
+    if (shouldBeDone) {
+      if (existing?.id) {
+        serverVersion += 1;
+        const { error: upErr } = await supabase
+          .from("habit_completions")
+          .update({
+            deleted_at: null,
+            operation_id: operationId,
+            actor_user_id: ctx.userUuid,
+            device_id: input.deviceId ?? null,
+            updated_at: serverUpdatedAt,
+            version: serverVersion,
+          })
+          .eq("id", existing.id);
+        if (upErr) return { ok: false, code: "db", message: upErr.message };
+      } else {
+        serverVersion = 1;
+        const { error: insErr } = await supabase.from("habit_completions").insert({
+          habit_id: input.habitId,
+          user_id: input.userId,
+          date,
+          deleted_at: null,
+          operation_id: operationId,
+          actor_user_id: ctx.userUuid,
+          device_id: input.deviceId ?? null,
+          updated_at: serverUpdatedAt,
+          version: serverVersion,
+        });
+        if (insErr) return { ok: false, code: "db", message: insErr.message };
+      }
 
       const { data: userRow } = await supabase
         .from("users")
@@ -310,7 +387,8 @@ export async function toggleCompletionAction(input: {
         .from("habit_completions")
         .select("*")
         .eq("habit_id", input.habitId)
-        .eq("user_id", input.userId);
+        .eq("user_id", input.userId)
+        .is("deleted_at", null);
 
       const completions = (compRows ?? []).map((r) =>
         rowToCompletion(r as Parameters<typeof rowToCompletion>[0]),
@@ -335,10 +413,50 @@ export async function toggleCompletionAction(input: {
         grace,
         existingMs,
       );
+    } else if (existing?.id) {
+      serverVersion += 1;
+      const { error: delErr } = await supabase
+        .from("habit_completions")
+        .update({
+          deleted_at: serverUpdatedAt,
+          operation_id: operationId,
+          actor_user_id: ctx.userUuid,
+          device_id: input.deviceId ?? null,
+          updated_at: serverUpdatedAt,
+          version: serverVersion,
+        })
+        .eq("id", existing.id);
+      if (delErr) return { ok: false, code: "db", message: delErr.message };
     }
 
+    const { error: evtErr } = await supabase.from("completion_events").insert({
+      couple_id: ctx.coupleId,
+      habit_id: input.habitId,
+      user_id: input.userId,
+      date,
+      action: desiredAction,
+      operation_id: operationId,
+      actor_user_id: ctx.userUuid,
+      device_id: input.deviceId ?? null,
+      version: serverVersion,
+      server_ts: serverUpdatedAt,
+    });
+    if (evtErr) return { ok: false, code: "db", message: evtErr.message };
+
     const state = await getAppStateForClerkId(ctx.clerkId);
-    return { ok: true, data: state! };
+    return {
+      ok: true,
+      data: {
+        state: state!,
+        mutation: {
+          operationId,
+          applied: true,
+          action: desiredAction,
+          serverUpdatedAt,
+          serverVersion,
+        },
+      },
+    };
   } catch (e) {
     return err(e);
   }

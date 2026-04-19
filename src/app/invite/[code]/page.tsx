@@ -18,7 +18,7 @@ function InviteSignInRedirect({ normalized }: { normalized: string }) {
   useEffect(() => {
     if (!isLoaded || userId) return;
     router.replace(
-      `/sign-up?redirect_url=${encodeURIComponent(`/invite/${normalized}`)}`,
+      `/sign-in?redirect_url=${encodeURIComponent(`/invite/${normalized}`)}`,
     );
   }, [isLoaded, userId, normalized, router]);
   return null;
@@ -91,32 +91,41 @@ export default function InviteLanding({ params }: PageProps) {
             Join the pair
           </h1>
           <p className="mt-3 text-base text-muted-foreground">
-            Code{" "}
+            Invite code{" "}
             <span className="font-mono text-foreground">{normalized}</span>
           </p>
         </div>
         <div className="mt-10 grid gap-5">
-          <div>
-            <Label htmlFor="invite-name">Your first name</Label>
-            <Input
-              id="invite-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Sam"
-              className="mt-1.5 h-12 rounded-2xl text-base"
-              autoFocus
-            />
-          </div>
+          {!state.me ? (
+            <div>
+              <Label htmlFor="invite-name">Your first name</Label>
+              <Input
+                id="invite-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Sam"
+                className="mt-1.5 h-12 rounded-2xl text-base"
+                autoFocus
+              />
+            </div>
+          ) : (
+            <p className="rounded-2xl border border-border/60 bg-card/70 p-3 text-sm text-muted-foreground">
+              You are signed in as{" "}
+              <span className="font-semibold text-foreground">{state.me.name}</span>. Tap below to connect to your partner.
+            </p>
+          )}
           {error && <p className="text-sm text-destructive">{error}</p>}
           <Button
             size="lg"
             className="h-12 w-full rounded-2xl text-base"
             onClick={accept}
           >
-            Join your partner
+            Continue to Duo
           </Button>
           <p className="text-center text-xs text-muted-foreground">
-            You can personalize everything after joining.
+            {state.me
+              ? "You will skip the invite setup screens and open your main page."
+              : "You can personalize everything after joining."}
           </p>
         </div>
       </div>

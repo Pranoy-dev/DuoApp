@@ -1,6 +1,7 @@
 "use client";
 
 import { Check } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 import { streakFor, weekProgress } from "@/lib/streak";
@@ -40,7 +41,9 @@ export function HabitRow({
 
   const onToggle = () => {
     if (!interactive) return;
-    void toggleCompletion(habit.id, userId);
+    void toggleCompletion(habit.id, userId).catch((e: unknown) => {
+      toast.error(e instanceof Error ? e.message : "Could not sync this change.");
+    });
     if (typeof navigator !== "undefined" && "vibrate" in navigator) {
       try {
         navigator.vibrate(doneToday ? 8 : [6, 18, 10]);

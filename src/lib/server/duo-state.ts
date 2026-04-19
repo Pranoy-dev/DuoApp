@@ -116,7 +116,8 @@ export async function getAppStateForClerkId(
     const { data: completionRows } = await supabase
       .from("habit_completions")
       .select("*")
-      .in("habit_id", habitIds);
+      .in("habit_id", habitIds)
+      .is("deleted_at", null);
     completions = (completionRows ?? [])
       .filter((r) => habitIdSet.has(r.habit_id as string))
       .map((r) =>

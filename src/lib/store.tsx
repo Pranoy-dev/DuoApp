@@ -7,6 +7,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import * as duoActions from "@/app/actions/duo";
@@ -55,6 +56,20 @@ const EMPTY: AppState = {
 
 function uid(prefix = "id"): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 9)}${Date.now().toString(36).slice(-4)}`;
+}
+
+function getDeviceId(): string {
+  if (typeof window === "undefined") return "server";
+  const key = "duo.device.id";
+  try {
+    const existing = window.localStorage.getItem(key);
+    if (existing) return existing;
+    const generated = uid("device");
+    window.localStorage.setItem(key, generated);
+    return generated;
+  } catch {
+    return uid("device");
+  }
 }
 
 function inviteCode(): string {
@@ -163,6 +178,61 @@ function milestonesAfterNewCompletion(
   return unlocked;
 }
 
+function completionIdentity(habitId: string, userId: string, date: string): string {
+  return `${habitId}::${userId}::${date}`;
+}
+
+function applyCompletionState(
+  s: AppState,
+  args: { habitId: string; userId: string; date: string; done: boolean; completionId?: string },
+): AppState {
+  const existing = s.completions.find(
+    (c) =>
+      c.habitId === args.habitId &&
+      c.userId === args.userId &&
+      c.date === args.date,
+  );
+  let completions = s.completions;
+  if (args.done) {
+    if (!existing) {
+      completions = [
+        ...s.completions,
+        {
+          id: args.completionId ?? uid("x"),
+          habitId: args.habitId,
+          userId: args.userId,
+          date: args.date,
+        },
+      ];
+    }
+  } else if (existing) {
+    completions = s.completions.filter((c) => c !== existing);
+  }
+
+  return { ...s, completions };
+}
+
+type PendingCompletionMutation = {
+  operationId: string;
+  identity: string;
+  habitId: string;
+  userId: string;
+  date: string;
+  previousDone: boolean;
+  nextDone: boolean;
+};
+
+export type CompletionRealtimeEvent = {
+  operationId: string;
+  completionId: string;
+  habitId: string;
+  userId: string;
+  date: string;
+  action: "done" | "undone";
+  version: number;
+  serverTs: string;
+};
+
 type StoreValue = {
   state: AppState;
   ready: boolean;
@@ -194,6 +264,8 @@ type StoreValue = {
   applyRemoteHydration: (data: AppState) => void;
   /** Live cloud: reload full state from Supabase (e.g. partner completions). */
   refreshBootstrapFromServer: () => Promise<void>;
+  /** Apply realtime completion event pushed from server. */
+  applyCompletionRealtimeEvent: (event: CompletionRealtimeEvent) => void;
 };
 
 const StoreContext = createContext<StoreValue | null>(null);
@@ -272,6 +344,10 @@ function StoreProviderCore({
   const clerkAuthEnabled = Boolean(duoRuntime.clerkPublishableKey.trim());
   const [state, setState] = useState<AppState>(EMPTY);
   const [ready, setReady] = useState(false);
+  const stateRef = useRef<AppState>(EMPTY);
+  const pendingByOpRef = useRef<Map<string, PendingCompletionMutation>>(new Map());
+  const latestOpByIdentityRef = useRef<Map<string, string>>(new Map());
+  const seenOperationIdsRef = useRef<Set<string>>(new Set());
 
   const applyRemoteState = useCallback((data: AppState) => {
     setState(
@@ -300,10 +376,44 @@ function StoreProviderCore({
     applyRemoteState(r.data);
   }, [duoCloudActive, applyRemoteState]);
 
+  const applyCompletionRealtimeEvent = useCallback(
+    (event: CompletionRealtimeEvent) => {
+      if (seenOperationIdsRef.current.has(event.operationId)) return;
+      seenOperationIdsRef.current.add(event.operationId);
+      if (seenOperationIdsRef.current.size > 500) {
+        const first = seenOperationIdsRef.current.values().next().value;
+        if (first) seenOperationIdsRef.current.delete(first);
+      }
+
+      const pending = pendingByOpRef.current.get(event.operationId);
+      if (pending) {
+        pendingByOpRef.current.delete(event.operationId);
+        if (latestOpByIdentityRef.current.get(pending.identity) === event.operationId) {
+          latestOpByIdentityRef.current.delete(pending.identity);
+        }
+      }
+
+      setState((s) =>
+        applyCompletionState(s, {
+          habitId: event.habitId,
+          userId: event.userId,
+          date: event.date,
+          done: event.action === "done",
+          completionId: event.completionId,
+        }),
+      );
+    },
+    [],
+  );
+
   useEffect(() => {
     setState(readInitial());
     setReady(true);
   }, []);
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   useEffect(() => {
     if (!ready) return;
@@ -517,46 +627,83 @@ function StoreProviderCore({
 
   const toggleCompletion = useCallback(
     async (habitId: string, userId: string, date = todayKey()) => {
-      if (duoCloudActive) {
-        const r = await duoActions.toggleCompletionAction({
+      const previousDone = stateRef.current.completions.some(
+        (c) => c.habitId === habitId && c.userId === userId && c.date === date,
+      );
+      const nextDone = !previousDone;
+      const operationId = uid("op");
+      const identity = completionIdentity(habitId, userId, date);
+
+      pendingByOpRef.current.set(operationId, {
+        operationId,
+        identity,
+        habitId,
+        userId,
+        date,
+        previousDone,
+        nextDone,
+      });
+      latestOpByIdentityRef.current.set(identity, operationId);
+
+      setState((s) => {
+        const next = applyCompletionState(s, {
           habitId,
           userId,
           date,
+          done: nextDone,
         });
-        if (!r.ok) throw new Error(r.message);
-        applyRemoteState(r.data);
-        return;
-      }
-      setState((s) => {
-        const existing = s.completions.find(
-          (c) => c.habitId === habitId && c.userId === userId && c.date === date,
-        );
-        let completions: Completion[];
-        if (existing) {
-          completions = s.completions.filter((c) => c !== existing);
-        } else {
-          completions = [
-            ...s.completions,
-            { id: uid("x"), habitId, userId, date },
-          ];
-        }
         const habit = s.habits.find((h) => h.id === habitId);
-        let milestones = s.milestones;
-        if (habit && !existing) {
+        let milestones = next.milestones;
+        if (habit && nextDone && !previousDone) {
           const unlocked = milestonesAfterNewCompletion(
-            s,
+            next,
             habit,
             habitId,
             userId,
-            completions,
+            next.completions,
           );
           if (unlocked.length) milestones = [...milestones, ...unlocked];
         }
-        return { ...s, completions, milestones };
+        return { ...next, milestones };
       });
+
       if (duoRuntime.duoDeferredSnapshotSync && !duoCloudActive) {
         requestDeferredSnapshotFlushSoon();
       }
+      if (!duoCloudActive) return;
+
+      const r = await duoActions.toggleCompletionAction({
+        habitId,
+        userId,
+        date,
+        action: nextDone ? "done" : "undone",
+        operationId,
+        clientTimestamp: new Date().toISOString(),
+        deviceId: getDeviceId(),
+      });
+      if (!r.ok) {
+        const latest = latestOpByIdentityRef.current.get(identity);
+        pendingByOpRef.current.delete(operationId);
+        if (latest === operationId) {
+          latestOpByIdentityRef.current.delete(identity);
+          setState((s) =>
+            applyCompletionState(s, {
+              habitId,
+              userId,
+              date,
+              done: previousDone,
+            }),
+          );
+        }
+        throw new Error(r.message);
+      }
+
+      pendingByOpRef.current.delete(operationId);
+      if (latestOpByIdentityRef.current.get(identity) === operationId) {
+        latestOpByIdentityRef.current.delete(identity);
+      }
+      seenOperationIdsRef.current.add(operationId);
+      applyRemoteState(r.data.state);
     },
     [
       applyRemoteState,
@@ -817,6 +964,7 @@ function StoreProviderCore({
       resetAll,
       applyRemoteHydration: applyRemoteState,
       refreshBootstrapFromServer,
+      applyCompletionRealtimeEvent,
     }),
     [
       state,
@@ -839,6 +987,7 @@ function StoreProviderCore({
       resetAll,
       applyRemoteState,
       refreshBootstrapFromServer,
+      applyCompletionRealtimeEvent,
     ],
   );
 
