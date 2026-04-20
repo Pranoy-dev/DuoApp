@@ -191,7 +191,7 @@ export function HabitRow({
           )}
         >
           <span className="text-base font-semibold leading-none tabular-nums">
-            {Math.max(info.current, 0)}
+            {Math.max(info.current, 1)}
           </span>
         </span>
         <span

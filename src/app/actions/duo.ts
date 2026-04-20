@@ -1,7 +1,7 @@
 "use server";
 
 import { auth } from "@clerk/nextjs/server";
-import type { AppState, Habit, QuoteTone } from "@/lib/types";
+import type { AppState, Habit } from "@/lib/types";
 import {
   serverDeferredSnapshotSyncEnabled,
   serverDuoCloudDataEnabled,
@@ -23,7 +23,6 @@ import {
 } from "@/lib/server/duo-mappers";
 import { syncMilestonesForCompletion } from "@/lib/server/duo-milestone-sync";
 import { addDays, diffDays, todayKey, toDateKey } from "@/lib/date";
-import { pickQuoteForDate } from "@/lib/quotes";
 
 export type DuoActionResult<T = AppState> =
   | { ok: true; data: T }
@@ -59,17 +58,6 @@ function missingRelation(e: { message?: string } | null | undefined, relation: s
   );
 }
 
-function quoteSchemaMissing(e: { message?: string } | null | undefined): boolean {
-  const msg = String(e?.message ?? "").toLowerCase();
-  if (!msg.includes("schema cache") && !msg.includes("could not find")) return false;
-  return (
-    msg.includes("quote_categories") ||
-    msg.includes("quotes") ||
-    msg.includes("user_quote_progress") ||
-    msg.includes("user_quote_history")
-  );
-}
-
 export async function getBootstrapStateAction(): Promise<
   DuoActionResult<AppState | null>
 > {
@@ -89,7 +77,6 @@ export async function getBootstrapStateAction(): Promise<
 export async function provisionDuoUserAction(input: {
   name: string;
   emoji: string;
-  tone: QuoteTone;
 }): Promise<DuoActionResult<AppState>> {
   try {
     const clerkId = await requireClerkUserId();
@@ -100,7 +87,6 @@ export async function provisionDuoUserAction(input: {
         clerk_id: clerkId,
         name: input.name.trim() || "You",
         emoji: input.emoji,
-        tone: input.tone,
         grace_enabled: true,
         streak_revives_remaining: 3,
         streak_revives_next_refill_at: nextRefill,
@@ -788,201 +774,6 @@ export async function markCheersReadAction(): Promise<DuoActionResult<AppState>>
   }
 }
 
-export async function unlockTodayQuoteAction(): Promise<
-  DuoActionResult<AppState>
-> {
-  try {
-    const ctx = await requireDuoContext();
-    const supabase = getServiceSupabase()!;
-    const date = todayKey();
-    const unlockWithLegacyQuote = async (): Promise<DuoActionResult<AppState>> => {
-      const { data: meRow } = await supabase
-        .from("users")
-        .select("tone")
-        .eq("id", ctx.userUuid)
-        .single();
-      const tone = (meRow?.tone as QuoteTone) ?? "stoic";
-      const q = pickQuoteForDate(date, tone);
-      const { error } = await supabase.from("journal_entries").insert({
-        user_id: ctx.userUuid,
-        date,
-        quote_id: q.id,
-      });
-      if (error && !String(error.message).toLowerCase().includes("duplicate")) {
-        return { ok: false, code: "db", message: error.message };
-      }
-      const state = await getAppStateForClerkId(ctx.clerkId);
-      return { ok: true, data: state! };
-    };
-    const { data: existing } = await supabase
-      .from("journal_entries")
-      .select("id")
-      .eq("user_id", ctx.userUuid)
-      .eq("date", date)
-      .maybeSingle();
-    if (!existing?.id) {
-      const { data: firstCategory, error: catErr } = await supabase
-        .from("quote_categories")
-        .select("id, sort_order")
-        .order("sort_order", { ascending: true })
-        .limit(1)
-        .maybeSingle();
-      if (catErr || !firstCategory?.id) {
-        if (catErr && quoteSchemaMissing(catErr)) {
-          return unlockWithLegacyQuote();
-        }
-        return {
-          ok: false,
-          code: "db",
-          message: catErr?.message ?? "Missing quote categories",
-        };
-      }
-
-      let { data: progress, error: progressErr } = await supabase
-        .from("user_quote_progress")
-        .select("*")
-        .eq("user_id", ctx.userUuid)
-        .maybeSingle();
-      if (!progressErr && !progress) {
-        const { data: inserted, error: insertErr } = await supabase
-          .from("user_quote_progress")
-          .insert({
-            user_id: ctx.userUuid,
-            current_category_id: firstCategory.id as string,
-            next_position: 1,
-            completed: false,
-          })
-          .select("*")
-          .single();
-        progress = inserted;
-        progressErr = insertErr;
-      }
-      if (progressErr && quoteSchemaMissing(progressErr)) {
-        return unlockWithLegacyQuote();
-      }
-      if (progressErr && String(progressErr.message).toLowerCase().includes("duplicate")) {
-        const { data: existingProgress, error: reloadErr } = await supabase
-          .from("user_quote_progress")
-          .select("*")
-          .eq("user_id", ctx.userUuid)
-          .single();
-        progress = existingProgress;
-        progressErr = reloadErr;
-      }
-      if (progressErr || !progress) {
-        return {
-          ok: false,
-          code: "db",
-          message: progressErr?.message ?? "Could not load quote progress",
-        };
-      }
-      if (progress.completed) {
-        const state = await getAppStateForClerkId(ctx.clerkId);
-        return { ok: true, data: state! };
-      }
-
-      const { data: quoteRow, error: quoteErr } = await supabase
-        .from("quotes")
-        .select("id, category_id, position_in_category")
-        .eq("category_id", progress.current_category_id as string)
-        .eq("position_in_category", progress.next_position as number)
-        .maybeSingle();
-      if (quoteErr || !quoteRow?.id) {
-        if (quoteErr && quoteSchemaMissing(quoteErr)) {
-          return unlockWithLegacyQuote();
-        }
-        return {
-          ok: false,
-          code: "db",
-          message: quoteErr?.message ?? "Quote not found for current cursor",
-        };
-      }
-      const quoteId = quoteRow.id as string;
-
-      const { error: historyErr } = await supabase
-        .from("user_quote_history")
-        .insert({
-          user_id: ctx.userUuid,
-          quote_id: quoteId,
-          shown_at: new Date().toISOString(),
-        });
-      if (
-        historyErr &&
-        !String(historyErr.message).toLowerCase().includes("duplicate")
-      ) {
-        if (quoteSchemaMissing(historyErr)) {
-          return unlockWithLegacyQuote();
-        }
-        return { ok: false, code: "db", message: historyErr.message };
-      }
-
-      const { error } = await supabase.from("journal_entries").insert({
-        user_id: ctx.userUuid,
-        date,
-        quote_id: quoteId,
-      });
-      if (error && !String(error.message).toLowerCase().includes("duplicate")) {
-        return { ok: false, code: "db", message: error.message };
-      }
-
-      let nextPosition = Number(progress.next_position) + 1;
-      let nextCategory = progress.current_category_id as string;
-      let completed = Boolean(progress.completed);
-
-      const { count: categoryCountRaw, error: countErr } = await supabase
-        .from("quotes")
-        .select("id", { count: "exact", head: true })
-        .eq("category_id", nextCategory);
-      if (countErr) {
-        if (quoteSchemaMissing(countErr)) return unlockWithLegacyQuote();
-        return { ok: false, code: "db", message: countErr.message };
-      }
-      const categoryCount = Number(categoryCountRaw ?? 0) || 0;
-
-      if (nextPosition > categoryCount) {
-        const { data: curCategory } = await supabase
-          .from("quote_categories")
-          .select("sort_order")
-          .eq("id", nextCategory)
-          .single();
-        const currentOrder = Number(curCategory?.sort_order ?? 0);
-        const { data: nextCategoryRow } = await supabase
-          .from("quote_categories")
-          .select("id")
-          .gt("sort_order", currentOrder)
-          .order("sort_order", { ascending: true })
-          .limit(1)
-          .maybeSingle();
-        if (nextCategoryRow?.id) {
-          nextCategory = nextCategoryRow.id as string;
-          nextPosition = 1;
-        } else {
-          completed = true;
-          nextPosition = categoryCount + 1;
-        }
-      }
-
-      const { error: upProgressErr } = await supabase
-        .from("user_quote_progress")
-        .update({
-          current_category_id: nextCategory,
-          next_position: nextPosition,
-          completed,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("user_id", ctx.userUuid);
-      if (upProgressErr) {
-        if (quoteSchemaMissing(upProgressErr)) return unlockWithLegacyQuote();
-        return { ok: false, code: "db", message: upProgressErr.message };
-      }
-    }
-    const state = await getAppStateForClerkId(ctx.clerkId);
-    return { ok: true, data: state! };
-  } catch (e) {
-    return err(e);
-  }
-}
-
 export async function saveDayExcitementAction(input: {
   stars: number;
   note: string;
@@ -1004,22 +795,6 @@ export async function saveDayExcitementAction(input: {
       },
       { onConflict: "user_id,date" },
     );
-    if (error) return { ok: false, code: "db", message: error.message };
-    const state = await getAppStateForClerkId(ctx.clerkId);
-    return { ok: true, data: state! };
-  } catch (e) {
-    return err(e);
-  }
-}
-
-export async function setToneAction(tone: QuoteTone): Promise<DuoActionResult<AppState>> {
-  try {
-    const ctx = await requireDuoContext();
-    const supabase = getServiceSupabase()!;
-    const { error } = await supabase
-      .from("users")
-      .update({ tone })
-      .eq("id", ctx.userUuid);
     if (error) return { ok: false, code: "db", message: error.message };
     const state = await getAppStateForClerkId(ctx.clerkId);
     return { ok: true, data: state! };

@@ -29,17 +29,14 @@ import type {
   Couple,
   DayExcitementEntry,
   Habit,
-  JournalEntry,
   MilestoneAchievement,
   Person,
-  QuoteTone,
 } from "./types";
 import { habitIntent } from "./types";
 import { todayKey, toDateKey, diffDays, addDays } from "./date";
 import { replenishPersonRevives } from "./revives";
 import { streakFor } from "./streak";
 import { MILESTONE_TIERS } from "./milestones";
-import { pickQuoteForDate } from "./quotes";
 
 const STORAGE_KEY = "duo.state.v1";
 const PARTNER_POLL_MS = 12_000;
@@ -51,7 +48,6 @@ const EMPTY: AppState = {
   completions: [],
   cheers: [],
   milestones: [],
-  journal: [],
   dayExcitement: [],
 };
 
@@ -271,7 +267,6 @@ type StoreValue = {
   createAccount: (p: {
     name: string;
     emoji: string;
-    tone: QuoteTone;
   }) => Promise<Person>;
   signOut: () => Promise<void>;
   createCouple: () => Promise<Couple>;
@@ -291,9 +286,7 @@ type StoreValue = {
   }) => Promise<boolean>;
   sendCheer: (toUserId: string, habitId?: string) => Promise<void>;
   markCheersRead: () => Promise<void>;
-  setTone: (tone: QuoteTone) => Promise<void>;
   setGrace: (enabled: boolean) => Promise<void>;
-  unlockTodayQuote: () => Promise<JournalEntry | null>;
   saveDayExcitement: (input: { stars: number; note: string }) => Promise<void>;
   resetAll: () => Promise<void>;
   /** Replace store from server snapshot (deferred sync / bootstrap). */
@@ -557,7 +550,7 @@ function StoreProviderCore({
   }, [refreshBootstrapFromServer, shouldBackgroundRefreshSoloCouple]);
 
   const createAccount = useCallback(
-    async (p: { name: string; emoji: string; tone: QuoteTone }) => {
+    async (p: { name: string; emoji: string }) => {
       if (serverCoupleActionsEnabled) {
         const r = await duoActions.provisionDuoUserAction(p);
         if (!r.ok) throw new Error(r.message);
@@ -569,7 +562,6 @@ function StoreProviderCore({
         id: uid("u"),
         name: p.name,
         emoji: p.emoji,
-        tone: p.tone,
         graceEnabled: true,
         streakRevivesRemaining: 3,
         streakRevivesNextRefillAt: addDays(now, 14).toISOString(),
@@ -673,7 +665,6 @@ function StoreProviderCore({
           id: uid("u"),
           name: partner.name,
           emoji: partner.emoji,
-          tone: s.me.tone,
           graceEnabled: true,
           streakRevivesRemaining: 3,
           streakRevivesNextRefillAt: addDays(createdAt, 14).toISOString(),
@@ -997,19 +988,6 @@ function StoreProviderCore({
     }));
   }, [applyRemoteState, duoCloudActive]);
 
-  const setTone = useCallback(
-    async (tone: QuoteTone) => {
-      if (duoCloudActive) {
-        const r = await duoActions.setToneAction(tone);
-        if (!r.ok) throw new Error(r.message);
-        applyRemoteState(r.data);
-        return;
-      }
-      setState((s) => (s.me ? { ...s, me: { ...s.me, tone } } : s));
-    },
-    [applyRemoteState, duoCloudActive],
-  );
-
   const setGrace = useCallback(
     async (enabled: boolean) => {
       if (duoCloudActive) {
@@ -1024,37 +1002,6 @@ function StoreProviderCore({
     },
     [applyRemoteState, duoCloudActive],
   );
-
-  const unlockTodayQuote = useCallback(async () => {
-    if (duoCloudActive) {
-      const r = await duoActions.unlockTodayQuoteAction();
-      if (!r.ok) throw new Error(r.message);
-      applyRemoteState(r.data);
-      const date = todayKey();
-      return r.data.journal.find((j) => j.userId === r.data.me!.id && j.date === date) ?? null;
-    }
-    let entry: JournalEntry | null = null;
-    setState((s) => {
-      if (!s.me) return s;
-      const date = todayKey();
-      const already = s.journal.find(
-        (j) => j.userId === s.me!.id && j.date === date,
-      );
-      if (already) {
-        entry = already;
-        return s;
-      }
-      const q = pickQuoteForDate(date, s.me.tone);
-      entry = {
-        id: uid("j"),
-        userId: s.me.id,
-        date,
-        quoteId: q.id,
-      };
-      return { ...s, journal: [...s.journal, entry] };
-    });
-    return entry;
-  }, [applyRemoteState, duoCloudActive]);
 
   const saveDayExcitement = useCallback(
     async (input: { stars: number; note: string }) => {
@@ -1142,9 +1089,7 @@ function StoreProviderCore({
       revivePartnerMiss,
       sendCheer,
       markCheersRead,
-      setTone,
       setGrace,
-      unlockTodayQuote,
       saveDayExcitement,
       resetAll,
       applyRemoteHydration: applyRemoteState,
@@ -1168,9 +1113,7 @@ function StoreProviderCore({
       revivePartnerMiss,
       sendCheer,
       markCheersRead,
-      setTone,
       setGrace,
-      unlockTodayQuote,
       saveDayExcitement,
       resetAll,
       applyRemoteState,

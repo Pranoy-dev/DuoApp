@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "Duo — a habit streak for two",
     short_name: "Duo",
     description:
-      "A shared habit tracker for couples. Streaks, cheers, and a daily quote.",
+      "A shared habit tracker for couples. Streaks and cheers.",
     start_url: "/today",
     scope: "/",
     display: "standalone",

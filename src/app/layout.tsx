@@ -26,7 +26,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Duo — a habit streak for two",
   description:
-    "A shared habit tracker for couples. Streaks, cheers, and a daily quote.",
+    "A shared habit tracker for couples. Streaks and cheers.",
   applicationName: "Duo",
   appleWebApp: {
     capable: true,

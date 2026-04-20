@@ -4,10 +4,8 @@ import type {
   Couple,
   DayExcitementEntry,
   Habit,
-  JournalEntry,
   MilestoneAchievement,
   Person,
-  QuoteTone,
 } from "@/lib/types";
 import { habitIntent } from "@/lib/types";
 const MS_14D = 14 * 86_400_000;
@@ -16,7 +14,6 @@ type UserRow = {
   id: string;
   name: string;
   emoji: string;
-  tone: string;
   grace_enabled: boolean;
   streak_revives_remaining: number | null;
   streak_revives_next_refill_at: string | null;
@@ -45,7 +42,6 @@ export function rowToPerson(row: UserRow): Person {
     id: row.id,
     name: row.name,
     emoji: row.emoji,
-    tone: (row.tone as QuoteTone) ?? "stoic",
     graceEnabled: row.grace_enabled ?? true,
     streakRevivesRemaining: row.streak_revives_remaining ?? 3,
     streakRevivesNextRefillAt: nextRefill,
@@ -145,30 +141,6 @@ export function rowToMilestone(row: {
     userId: row.user_id,
     tier: row.tier,
     achievedAt: row.achieved_at,
-  };
-}
-
-export function rowToJournal(row: {
-  id: string;
-  user_id: string;
-  date: string;
-  quote_id: string;
-  quotes?: {
-    text?: string;
-    author?: string;
-    category_id?: string;
-  } | null;
-}): JournalEntry {
-  return {
-    id: row.id,
-    userId: row.user_id,
-    date: row.date,
-    quoteId: row.quote_id,
-    quoteText: row.quotes?.text,
-    quoteAuthor: row.quotes?.author,
-    quoteTone:
-      (row.quotes?.category_id as JournalEntry["quoteTone"] | undefined) ??
-      undefined,
   };
 }
 

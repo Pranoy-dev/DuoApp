@@ -57,7 +57,6 @@ export default function InviteLanding({ params }: PageProps) {
           await createAccount({
             name: name.trim() || "Partner",
             emoji: "🌙",
-            tone: "stoic",
           });
         }
         const joined = await joinCouple(normalized, {

@@ -1,11 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
 import { MobileScreen } from "@/components/mobile/mobile-screen";
 import { HabitRow } from "@/components/mobile/habit-row";
-import { QuoteCard } from "@/components/mobile/quote-card";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -20,14 +19,13 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { useStore } from "@/lib/store";
 import { todayKey, humanDate } from "@/lib/date";
-import { pickQuoteForDate, quoteById } from "@/lib/quotes";
 import { cn } from "@/lib/utils";
 import type { HabitIntent } from "@/lib/types";
 
 const DEFAULT_HABIT_EMOJI = "✦";
 
 export default function TodayPage() {
-  const { state, addHabit, unlockTodayQuote } = useStore();
+  const { state, addHabit } = useStore();
   const me = state.me!;
   const today = todayKey();
   const myHabits = state.habits.filter((h) => h.ownerId === me.id);
@@ -37,52 +35,12 @@ export default function TodayPage() {
     ),
   ).length;
   const totalHabits = myHabits.length;
-  const journalForToday = state.journal.find(
-    (j) => j.userId === me.id && j.date === today,
-  );
-  const quote = journalForToday
-    ? journalForToday.quoteText && journalForToday.quoteAuthor
-      ? {
-          id: journalForToday.quoteId,
-          text: journalForToday.quoteText,
-          author: journalForToday.quoteAuthor,
-          tone: journalForToday.quoteTone ?? me.tone,
-        }
-      : quoteById(journalForToday.quoteId) ??
-        pickQuoteForDate(journalForToday.date, me.tone)
-    : undefined;
-
-  const greeting = useMemo(() => {
-    const h = new Date().getHours();
-    if (h < 5) return "Late night";
-    if (h < 12) return "Good morning";
-    if (h < 18) return "Good afternoon";
-    return "Good evening";
-  }, []);
-
   return (
     <MobileScreen
       eyebrow={humanDate()}
-      title={`${greeting}, ${me.name.split(" ")[0]}`}
+      title={me.name.split(" ")[0] ?? me.name}
       trailing={<AddHabitButton onAdd={addHabit} />}
     >
-      <section className="mb-4 mt-1">
-        <QuoteCard
-          quote={quote}
-          fallbackQuote={pickQuoteForDate(today, me.tone)}
-          onReveal={async () => {
-            try {
-              await unlockTodayQuote();
-            } catch (e) {
-              toast.error(
-                e instanceof Error ? e.message : "Could not reveal today's quote.",
-              );
-              throw e;
-            }
-          }}
-        />
-      </section>
-
       <section>
         <header className="mb-2 flex items-baseline justify-between px-0.5">
           <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">

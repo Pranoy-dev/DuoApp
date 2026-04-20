@@ -1,12 +1,6 @@
 export type HabitType = "daily" | "frequency";
 export type HabitIntent = "build" | "break";
 export type HabitVisibility = "solo" | "shared";
-export type QuoteTone =
-  | "stoic"
-  | "self-compassion"
-  | "humor"
-  | "athletic"
-  | "creative";
 
 export type Habit = {
   id: string;
@@ -59,16 +53,6 @@ export type MilestoneAchievement = {
   achievedAt: string;
 };
 
-export type JournalEntry = {
-  id: string;
-  userId: string;
-  date: string;
-  quoteId: string;
-  quoteText?: string;
-  quoteAuthor?: string;
-  quoteTone?: QuoteTone;
-};
-
 /** Daily excitement check-in (1–5 stars + optional note), one row per user per calendar day. */
 export type DayExcitementEntry = {
   id: string;
@@ -83,7 +67,6 @@ export type Person = {
   id: string;
   name: string;
   emoji: string;
-  tone: QuoteTone;
   graceEnabled: boolean;
   /** How many streak revives you can spend for your partner (local cap 3). */
   streakRevivesRemaining: number;
@@ -105,6 +88,5 @@ export type AppState = {
   completions: Completion[];
   cheers: Cheer[];
   milestones: MilestoneAchievement[];
-  journal: JournalEntry[];
   dayExcitement: DayExcitementEntry[];
 };

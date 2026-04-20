@@ -6,7 +6,6 @@ import {
   rowToCompletion,
   rowToDayExcitement,
   rowToHabit,
-  rowToJournal,
   rowToMilestone,
   rowToPerson,
 } from "@/lib/server/duo-mappers";
@@ -16,7 +15,6 @@ const EMPTY_SLICE = {
   completions: [] as AppState["completions"],
   cheers: [] as AppState["cheers"],
   milestones: [] as AppState["milestones"],
-  journal: [] as AppState["journal"],
   dayExcitement: [] as AppState["dayExcitement"],
 };
 
@@ -161,24 +159,6 @@ export async function getAppStateForClerkId(
     );
   }
 
-  const { data: journalRowsJoined, error: journalErr } = await supabase
-    .from("journal_entries")
-    .select("id,user_id,date,quote_id,quotes:quote_id(text,author,category_id)")
-    .in("user_id", memberIds);
-  const journalRows =
-    journalErr && String(journalErr.message).toLowerCase().includes("quotes")
-      ? (
-          await supabase
-            .from("journal_entries")
-            .select("id,user_id,date,quote_id")
-            .in("user_id", memberIds)
-        ).data
-      : journalRowsJoined;
-
-  const journal = (journalRows ?? []).map((r) =>
-    rowToJournal(r as Parameters<typeof rowToJournal>[0]),
-  );
-
   const { data: excRows } = await supabase
     .from("day_excitement")
     .select("*")
@@ -195,7 +175,6 @@ export async function getAppStateForClerkId(
     completions,
     cheers,
     milestones,
-    journal,
     dayExcitement,
   };
 }

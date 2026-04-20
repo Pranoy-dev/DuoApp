@@ -9,20 +9,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useStore } from "@/lib/store";
-import { QUOTE_TONES } from "@/lib/quotes";
-import type { QuoteTone } from "@/lib/types";
 
-const EMOJIS = ["☀️", "🌙", "🌷", "🌊", "🌿", "⭐️", "🍊", "🫧"];
+const DEFAULT_USER_EMOJI = "✦";
 
-type Step = "welcome" | "name" | "tone" | "pair" | "invite" | "done";
+type Step = "welcome" | "name" | "pair" | "invite" | "done";
 
 export default function OnboardingPage() {
   const router = useRouter();
   const { createAccount, createCouple } = useStore();
   const [step, setStep] = useState<Step>("welcome");
   const [name, setName] = useState("");
-  const [emoji, setEmoji] = useState(EMOJIS[0]);
-  const [tone, setTone] = useState<QuoteTone>("stoic");
   const [inviteLink, setInviteLink] = useState("");
   const [inviteCode, setInviteCode] = useState("");
   const [inviteReady, setInviteReady] = useState(false);
@@ -38,7 +34,10 @@ export default function OnboardingPage() {
     setError(null);
     setWorking(true);
     try {
-      await createAccount({ name: name.trim() || "You", emoji, tone });
+      await createAccount({
+        name: name.trim() || "You",
+        emoji: DEFAULT_USER_EMOJI,
+      });
       const couple = await createCouple();
       setInviteCode(couple.inviteCode);
       setInviteLink(buildInviteLink(couple.inviteCode));
@@ -95,7 +94,7 @@ export default function OnboardingPage() {
           <button
             type="button"
             onClick={() => {
-              const order: Step[] = ["welcome", "name", "tone", "pair", "invite"];
+              const order: Step[] = ["welcome", "name", "pair", "invite"];
               const i = order.indexOf(step);
               if (i > 0) setStep(order[i - 1]);
             }}
@@ -121,7 +120,7 @@ export default function OnboardingPage() {
             {step === "name" && (
               <StepFrame key="name">
                 <StepHeader
-                  eyebrow="Step 1 of 3"
+                  eyebrow="Step 1 of 2"
                   title="What should we call you?"
                   blurb="This is how your partner will see you."
                 />
@@ -137,62 +136,6 @@ export default function OnboardingPage() {
                       autoFocus
                     />
                   </div>
-                  <div>
-                    <Label>Pick an icon</Label>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {EMOJIS.map((e) => (
-                        <button
-                          key={e}
-                          type="button"
-                          onClick={() => setEmoji(e)}
-                          className={`flex size-12 items-center justify-center rounded-2xl border text-2xl transition-colors ${
-                            emoji === e
-                              ? "border-foreground bg-foreground/5"
-                              : "border-border hover:border-foreground/40"
-                          }`}
-                        >
-                          {e}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </StepFrame>
-            )}
-
-            {step === "tone" && (
-              <StepFrame key="tone">
-                <StepHeader
-                  eyebrow="Step 2 of 3"
-                  title="Pick your tone"
-                  blurb="Your daily quote is chosen from this shelf. You can switch later."
-                />
-                <div className="mt-6 flex flex-col gap-2 pb-4">
-                  {QUOTE_TONES.map((t) => (
-                    <button
-                      key={t.id}
-                      type="button"
-                      onClick={() => setTone(t.id as QuoteTone)}
-                      className={`flex items-center justify-between rounded-2xl border px-4 py-3.5 text-left transition-colors ${
-                        tone === t.id
-                          ? "border-foreground bg-foreground/5"
-                          : "border-border hover:border-foreground/40"
-                      }`}
-                    >
-                      <div>
-                        <p className="text-base font-semibold">{t.label}</p>
-                        <p className="text-sm text-muted-foreground">{t.blurb}</p>
-                      </div>
-                      {tone === t.id && (
-                        <span
-                          aria-hidden
-                          className="flex size-6 shrink-0 items-center justify-center rounded-full bg-foreground text-background"
-                        >
-                          ✓
-                        </span>
-                      )}
-                    </button>
-                  ))}
                 </div>
               </StepFrame>
             )}
@@ -200,7 +143,7 @@ export default function OnboardingPage() {
             {step === "pair" && (
               <StepFrame key="pair">
                 <StepHeader
-                  eyebrow="Step 3 of 3"
+                  eyebrow="Step 2 of 2"
                   title="Are you the first one here?"
                   blurb="Create your pair and share a deep link with your partner."
                 />
@@ -285,17 +228,8 @@ export default function OnboardingPage() {
             <Button
               size="lg"
               className="h-12 w-full rounded-2xl text-base"
-              onClick={() => setStep("tone")}
-              disabled={!name.trim()}
-            >
-              Continue
-            </Button>
-          )}
-          {step === "tone" && (
-            <Button
-              size="lg"
-              className="h-12 w-full rounded-2xl text-base"
               onClick={() => setStep("pair")}
+              disabled={!name.trim()}
             >
               Continue
             </Button>
@@ -384,7 +318,7 @@ function Hero() {
         for two.
       </h1>
       <p className="mt-4 max-w-[280px] text-base text-muted-foreground">
-        Small daily wins, together. One quiet quote a day as the reward.
+        Small daily wins, together.
       </p>
     </div>
   );

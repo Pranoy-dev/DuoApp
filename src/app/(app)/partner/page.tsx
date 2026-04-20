@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
+import { Star } from "lucide-react";
 import { toast } from "sonner";
 import { MobileScreen } from "@/components/mobile/mobile-screen";
 import { Button } from "@/components/ui/button";
@@ -16,6 +17,7 @@ import { cn } from "@/lib/utils";
 const TIMELINE_DAYS = 14;
 const MAX_REVIVES = 3;
 const PARTNER_POLL_MS = 12_000;
+const STAR_MAX = 5;
 
 function dateKeysLastNDays(n: number): string[] {
   const start = new Date();
@@ -88,6 +90,13 @@ export default function PartnerPage() {
 
   const revivesLeft = me.streakRevivesRemaining;
   const dateKeys = dateKeysLastNDays(TIMELINE_DAYS);
+  const partnerTodayFeeling = useMemo(
+    () =>
+      state.dayExcitement.find(
+        (e) => e.userId === partner.id && e.date === todayKey(),
+      ),
+    [partner.id, state.dayExcitement],
+  );
 
   const onRevive = async (habitId: string, date: string, habitName: string) => {
     const ok = await revivePartnerMiss({ partnerId: partner.id, habitId, date });
@@ -140,9 +149,6 @@ export default function PartnerPage() {
       </div>
 
       <section>
-        <h2 className="mb-2 px-0.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-          Last {TIMELINE_DAYS} days
-        </h2>
         {partnerHabits.length > 0 ? (
           <ul className="flex flex-col gap-4">
             {dateKeys.map((date) => {
@@ -159,6 +165,39 @@ export default function PartnerPage() {
                   {date === todayKey() ? " · Today" : ""}
                 </p>
                 <ul className="flex flex-col gap-2">
+                  {date === todayKey() ? (
+                    <li className="mb-1">
+                      {partnerTodayFeeling ? (
+                        <div className="rounded-2xl border border-border/60 bg-card/80 p-4">
+                          <div className="flex items-center gap-1">
+                            {Array.from({ length: STAR_MAX }, (_, i) => {
+                              const active = i + 1 <= partnerTodayFeeling.stars;
+                              return (
+                                <Star
+                                  key={i}
+                                  className={cn(
+                                    "size-4",
+                                    active ? "text-amber-500" : "text-muted-foreground/30",
+                                  )}
+                                  strokeWidth={1.7}
+                                  fill={active ? "currentColor" : "none"}
+                                />
+                              );
+                            })}
+                          </div>
+                          <p className="mt-2 text-[13px] text-muted-foreground">
+                            {partnerTodayFeeling.note.trim()
+                              ? partnerTodayFeeling.note
+                              : `${partner.name.split(" ")[0]} has not added a note today.`}
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="rounded-2xl border border-dashed border-border bg-card/60 p-4 text-[13px] text-muted-foreground">
+                          {partner.name.split(" ")[0]} has not checked in yet today.
+                        </div>
+                      )}
+                    </li>
+                  ) : null}
                   {habitsForDate.map((habit) => {
                       const done = state.completions.some(
                         (c) =>
@@ -214,7 +253,7 @@ export default function PartnerPage() {
                               )}
                             >
                               <span className="text-base font-semibold leading-none tabular-nums">
-                                {Math.max(streak, 0)}
+                                {Math.max(streak, 1)}
                               </span>
                             </span>
                             <span

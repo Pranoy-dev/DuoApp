@@ -49,8 +49,9 @@ export function TabBar() {
               {t.href === "/partner" && partnerUpdatesBadge > 0 ? (
                 <span
                   className={cn(
-                    "absolute top-0.5 right-[calc(50%-14px)] inline-flex min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-semibold leading-4 text-destructive-foreground shadow-sm",
-                    active && "bg-background text-foreground",
+                    "absolute top-0.5 right-[calc(50%-14px)] inline-flex min-w-4 items-center justify-center rounded-full bg-gradient-to-r from-rose-600 via-red-500 to-pink-500 px-1.5 text-[9px] font-bold leading-4 text-white ring-1 ring-background/80 shadow-[0_6px_16px_-6px_rgba(244,63,94,0.9)]",
+                    active &&
+                      "from-background via-background to-background text-foreground ring-foreground/15 shadow-[0_6px_16px_-8px_rgba(0,0,0,0.35)]",
                   )}
                   aria-label={`${partnerUpdatesBadge} unread partner updates`}
                 >

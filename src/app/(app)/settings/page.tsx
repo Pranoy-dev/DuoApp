@@ -16,8 +16,6 @@ import { useDuoRuntimeEnv } from "@/lib/duo-runtime-env";
 import { readSyncMeta } from "@/lib/duo-sync";
 import { useStore } from "@/lib/store";
 import { habitIntent } from "@/lib/types";
-import { QUOTE_TONES } from "@/lib/quotes";
-import type { QuoteTone } from "@/lib/types";
 
 export default function SettingsPage() {
   const duoRuntime = useDuoRuntimeEnv();
@@ -30,7 +28,6 @@ export default function SettingsPage() {
   const {
     state,
     signOut,
-    setTone,
     setGrace,
     removeHabit,
     resetAll,
@@ -93,9 +90,6 @@ export default function SettingsPage() {
         </span>
         <div className="min-w-0 flex-1">
           <p className="text-[15px] font-semibold leading-tight">{me.name}</p>
-          <p className="mt-0.5 text-[12px] text-muted-foreground capitalize">
-            {me.tone.replace("-", " ")} quotes
-          </p>
         </div>
       </section>
 
@@ -207,25 +201,6 @@ export default function SettingsPage() {
             checked={me.graceEnabled}
             onCheckedChange={(v) => void setGrace(v)}
           />
-        </div>
-        <div className="border-t border-border/60 p-3.5">
-          <p className="text-[13px] font-semibold">Quote tone</p>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {QUOTE_TONES.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => void setTone(t.id as QuoteTone)}
-                className={`rounded-full border px-3 py-1 text-[12px] transition-colors ${
-                  me.tone === t.id
-                    ? "border-foreground bg-foreground text-background"
-                    : "border-border text-foreground hover:border-foreground/40"
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
         </div>
       </section>
 
