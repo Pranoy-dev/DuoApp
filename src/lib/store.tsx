@@ -21,6 +21,7 @@ import {
   markSyncDirty,
   clearSyncMetaStorage,
   requestDeferredSnapshotFlushSoon,
+  setSyncMetaScope,
 } from "@/lib/duo-sync";
 import type {
   AppState,
@@ -38,7 +39,7 @@ import { replenishPersonRevives } from "./revives";
 import { streakFor } from "./streak";
 import { MILESTONE_TIERS } from "./milestones";
 
-const STORAGE_KEY = "duo.state.v1";
+const LEGACY_STORAGE_KEY = "duo.state.v1";
 const PARTNER_POLL_MS = 12_000;
 
 const EMPTY: AppState = {
@@ -107,10 +108,29 @@ function applyReplenishToState(s: AppState): AppState {
   };
 }
 
-function readInitial(): AppState {
+function storageScope(args: {
+  clerkUserId: string | null;
+  duoCloudActive: boolean;
+  deferredSnapshot: boolean;
+}): string {
+  const mode = args.duoCloudActive
+    ? "cloud"
+    : args.deferredSnapshot
+      ? "deferred"
+      : "local";
+  return `${mode}:${args.clerkUserId ?? "anon"}`;
+}
+
+function storageKeyForScope(scope: string): string {
+  return `${LEGACY_STORAGE_KEY}:${scope}`;
+}
+
+function readInitial(storageKey: string): AppState {
   if (typeof window === "undefined") return EMPTY;
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw =
+      window.localStorage.getItem(storageKey) ??
+      window.localStorage.getItem(LEGACY_STORAGE_KEY);
     if (!raw) return EMPTY;
     const parsed = JSON.parse(raw) as AppState;
     const habits = (parsed.habits ?? []).map((h) => normalizeHabit(h as Habit));
@@ -264,6 +284,7 @@ export type CompletionRealtimeEvent = {
 type StoreValue = {
   state: AppState;
   ready: boolean;
+  profileResolved: boolean;
   createAccount: (p: {
     name: string;
     emoji: string;
@@ -306,9 +327,11 @@ const StoreContext = createContext<StoreValue | null>(null);
 function DuoCloudHydration({
   duoCloudActive,
   onHydrated,
+  onSettled,
 }: {
   duoCloudActive: boolean;
   onHydrated: (s: AppState) => void;
+  onSettled: () => void;
 }) {
   const { userId, isLoaded } = useAuth();
   useEffect(() => {
@@ -316,13 +339,14 @@ function DuoCloudHydration({
     let cancelled = false;
     void (async () => {
       const r = await duoActions.getBootstrapStateAction();
-      if (cancelled || !r.ok || !r.data) return;
-      onHydrated(r.data);
+      if (cancelled) return;
+      if (r.ok && r.data) onHydrated(r.data);
+      onSettled();
     })();
     return () => {
       cancelled = true;
     };
-  }, [duoCloudActive, userId, isLoaded, onHydrated]);
+  }, [duoCloudActive, userId, isLoaded, onHydrated, onSettled]);
   return null;
 }
 
@@ -366,17 +390,34 @@ function DuoCloudForegroundRefresh({
 function StoreProviderCore({
   children,
   clerkUserId,
+  clerkLoaded,
 }: {
   children: React.ReactNode;
   clerkUserId: string | null;
+  clerkLoaded: boolean;
 }) {
   const duoRuntime = useDuoRuntimeEnv();
   const duoCloudActive = computeDuoCloudClientConfigured(duoRuntime);
   const serverCoupleActionsEnabled =
     computeServerCoupleActionsEnabled(duoRuntime);
   const clerkAuthEnabled = Boolean(duoRuntime.clerkPublishableKey.trim());
+  const deferredSnapshotEnabled = Boolean(duoRuntime.duoDeferredSnapshotSync);
+  const stateScope = useMemo(
+    () =>
+      storageScope({
+        clerkUserId,
+        duoCloudActive,
+        deferredSnapshot: deferredSnapshotEnabled,
+      }),
+    [clerkUserId, deferredSnapshotEnabled, duoCloudActive],
+  );
+  const scopedStorageKey = useMemo(
+    () => storageKeyForScope(stateScope),
+    [stateScope],
+  );
   const [state, setState] = useState<AppState>(EMPTY);
   const [ready, setReady] = useState(false);
+  const [profileResolved, setProfileResolved] = useState(false);
   const [partnerUpdatesBadge, setPartnerUpdatesBadge] = useState(0);
   const stateRef = useRef<AppState>(EMPTY);
   const pendingByOpRef = useRef<Map<string, PendingCompletionMutation>>(new Map());
@@ -489,9 +530,33 @@ function StoreProviderCore({
   }, []);
 
   useEffect(() => {
-    setState(readInitial());
+    setState(readInitial(scopedStorageKey));
     setReady(true);
-  }, []);
+  }, [scopedStorageKey]);
+
+  useEffect(() => {
+    setSyncMetaScope(stateScope);
+  }, [stateScope]);
+
+  useEffect(() => {
+    setProfileResolved(false);
+  }, [stateScope]);
+
+  useEffect(() => {
+    if (!ready) return;
+    if (!clerkAuthEnabled || !duoCloudActive) {
+      setProfileResolved(true);
+      return;
+    }
+    if (!clerkLoaded) return;
+    if (!clerkUserId) {
+      setProfileResolved(true);
+      return;
+    }
+    if (remoteHydratedRef.current) {
+      setProfileResolved(true);
+    }
+  }, [ready, clerkAuthEnabled, duoCloudActive, clerkLoaded, clerkUserId]);
 
   useEffect(() => {
     stateRef.current = state;
@@ -517,14 +582,14 @@ function StoreProviderCore({
   useEffect(() => {
     if (!ready) return;
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      window.localStorage.setItem(scopedStorageKey, JSON.stringify(state));
       if (duoRuntime.duoDeferredSnapshotSync && !duoCloudActive) {
         markSyncDirty();
       }
     } catch {
       // storage quota / private mode — ignore
     }
-  }, [state, ready, duoCloudActive, duoRuntime.duoDeferredSnapshotSync]);
+  }, [state, ready, duoCloudActive, duoRuntime.duoDeferredSnapshotSync, scopedStorageKey]);
 
   const shouldBackgroundRefreshSoloCouple =
     duoCloudActive && ready && Boolean(state.couple?.id) && (state.couple?.members.length ?? 0) < 2;
@@ -575,13 +640,13 @@ function StoreProviderCore({
   const signOut = useCallback(async () => {
     setState(EMPTY);
     try {
-      window.localStorage.removeItem(STORAGE_KEY);
+      window.localStorage.removeItem(scopedStorageKey);
       clearSyncMetaStorage();
     } catch {
       /* ignore */
     }
     if (clerkAuthEnabled) await runClerkSignOut();
-  }, [clerkAuthEnabled]);
+  }, [clerkAuthEnabled, scopedStorageKey]);
 
   const createCouple = useCallback(async () => {
     if (serverCoupleActionsEnabled) {
@@ -1066,17 +1131,18 @@ function StoreProviderCore({
     }
     setState(EMPTY);
     try {
-      window.localStorage.removeItem(STORAGE_KEY);
+      window.localStorage.removeItem(scopedStorageKey);
       clearSyncMetaStorage();
     } catch {
       /* ignore */
     }
-  }, [serverCoupleActionsEnabled]);
+  }, [scopedStorageKey, serverCoupleActionsEnabled]);
 
   const value = useMemo<StoreValue>(
     () => ({
       state,
       ready,
+      profileResolved,
       createAccount,
       signOut,
       createCouple,
@@ -1101,6 +1167,7 @@ function StoreProviderCore({
     [
       state,
       ready,
+      profileResolved,
       createAccount,
       signOut,
       createCouple,
@@ -1131,6 +1198,7 @@ function StoreProviderCore({
           <DuoCloudHydration
             duoCloudActive={duoCloudActive}
             onHydrated={applyRemoteState}
+            onSettled={() => setProfileResolved(true)}
           />
           <DuoCloudForegroundRefresh
             duoCloudActive={duoCloudActive}
@@ -1144,9 +1212,9 @@ function StoreProviderCore({
 }
 
 function ClerkScopedStoreProvider({ children }: { children: React.ReactNode }) {
-  const { userId } = useAuth();
+  const { userId, isLoaded } = useAuth();
   return (
-    <StoreProviderCore clerkUserId={userId ?? null}>
+    <StoreProviderCore clerkUserId={userId ?? null} clerkLoaded={isLoaded}>
       {children}
     </StoreProviderCore>
   );
@@ -1155,7 +1223,11 @@ function ClerkScopedStoreProvider({ children }: { children: React.ReactNode }) {
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const duoRuntime = useDuoRuntimeEnv();
   if (!duoRuntime.clerkPublishableKey.trim()) {
-    return <StoreProviderCore clerkUserId={null}>{children}</StoreProviderCore>;
+    return (
+      <StoreProviderCore clerkUserId={null} clerkLoaded={true}>
+        {children}
+      </StoreProviderCore>
+    );
   }
   return <ClerkScopedStoreProvider>{children}</ClerkScopedStoreProvider>;
 }

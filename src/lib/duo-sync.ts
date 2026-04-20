@@ -1,4 +1,5 @@
-const SYNC_META_KEY = "duo.sync.meta.v1";
+const LEGACY_SYNC_META_KEY = "duo.sync.meta.v1";
+let syncMetaKey = LEGACY_SYNC_META_KEY;
 
 export type DuoSyncMeta = {
   dirty: boolean;
@@ -12,10 +13,16 @@ const emptyMeta: DuoSyncMeta = {
   lastServerUpdatedAt: null,
 };
 
+export function setSyncMetaScope(scope: string): void {
+  syncMetaKey = `duo.sync.meta.v1:${scope}`;
+}
+
 export function readSyncMeta(): DuoSyncMeta {
   if (typeof window === "undefined") return emptyMeta;
   try {
-    const raw = window.localStorage.getItem(SYNC_META_KEY);
+    const raw =
+      window.localStorage.getItem(syncMetaKey) ??
+      window.localStorage.getItem(LEGACY_SYNC_META_KEY);
     if (!raw) return { ...emptyMeta };
     const o = JSON.parse(raw) as Partial<DuoSyncMeta>;
     return {
@@ -35,7 +42,7 @@ export function readSyncMeta(): DuoSyncMeta {
 export function writeSyncMeta(meta: DuoSyncMeta): void {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(SYNC_META_KEY, JSON.stringify(meta));
+    window.localStorage.setItem(syncMetaKey, JSON.stringify(meta));
   } catch {
     /* ignore */
   }
@@ -60,7 +67,10 @@ export function clearSyncDirty(args: {
 export function clearSyncMetaStorage(): void {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.removeItem(SYNC_META_KEY);
+    window.localStorage.removeItem(syncMetaKey);
+    if (syncMetaKey !== LEGACY_SYNC_META_KEY) {
+      window.localStorage.removeItem(LEGACY_SYNC_META_KEY);
+    }
   } catch {
     /* ignore */
   }

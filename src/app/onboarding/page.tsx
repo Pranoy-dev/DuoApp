@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { Copy, Share2 } from "lucide-react";
@@ -16,7 +16,7 @@ type Step = "welcome" | "name" | "pair" | "invite" | "done";
 
 export default function OnboardingPage() {
   const router = useRouter();
-  const { createAccount, createCouple } = useStore();
+  const { state, ready, profileResolved, createAccount, createCouple } = useStore();
   const [step, setStep] = useState<Step>("welcome");
   const [name, setName] = useState("");
   const [inviteLink, setInviteLink] = useState("");
@@ -24,6 +24,11 @@ export default function OnboardingPage() {
   const [inviteReady, setInviteReady] = useState(false);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!ready || !profileResolved) return;
+    if (state.me) router.replace("/today");
+  }, [ready, profileResolved, state.me, router]);
 
   const buildInviteLink = (nextInviteCode: string): string => {
     if (typeof window === "undefined") return `/invite/${nextInviteCode}`;

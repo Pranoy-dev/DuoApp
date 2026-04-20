@@ -27,6 +27,7 @@ function InviteSignInRedirect({ normalized }: { normalized: string }) {
 export default function InviteLanding({ params }: PageProps) {
   const duoRuntime = useDuoRuntimeEnv();
   const clerkInviteGate = computeServerCoupleActionsEnabled(duoRuntime);
+  const { isLoaded: authLoaded, userId } = useAuth();
   const { code } = use(params);
   const normalized = (code ?? "").toUpperCase();
   const router = useRouter();
@@ -53,6 +54,10 @@ export default function InviteLanding({ params }: PageProps) {
     void (async () => {
       setError(null);
       try {
+        if (clerkInviteGate && (!authLoaded || !userId)) {
+          setError("Please wait a moment while we verify your session.");
+          return;
+        }
         if (!state.me) {
           await createAccount({
             name: name.trim() || "Partner",
@@ -135,6 +140,7 @@ export default function InviteLanding({ params }: PageProps) {
             size="lg"
             className="h-12 w-full rounded-2xl text-base"
             onClick={accept}
+            disabled={clerkInviteGate && (!authLoaded || !userId)}
           >
             Continue to Duo
           </Button>

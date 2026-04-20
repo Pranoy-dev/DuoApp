@@ -69,6 +69,13 @@ export default function PartnerPage() {
     markPartnerUpdatesSeen();
   }, [markPartnerUpdatesSeen]);
 
+  const partnerTodayFeeling = useMemo(() => {
+    if (!partner) return undefined;
+    return state.dayExcitement.find(
+      (e) => e.userId === partner.id && e.date === todayKey(),
+    );
+  }, [partner, state.dayExcitement]);
+
   if (!couple || !partner) {
     return (
       <MobileScreen eyebrow="Partner" title="You're solo for now">
@@ -90,13 +97,6 @@ export default function PartnerPage() {
 
   const revivesLeft = me.streakRevivesRemaining;
   const dateKeys = dateKeysLastNDays(TIMELINE_DAYS);
-  const partnerTodayFeeling = useMemo(
-    () =>
-      state.dayExcitement.find(
-        (e) => e.userId === partner.id && e.date === todayKey(),
-      ),
-    [partner.id, state.dayExcitement],
-  );
 
   const onRevive = async (habitId: string, date: string, habitName: string) => {
     const ok = await revivePartnerMiss({ partnerId: partner.id, habitId, date });

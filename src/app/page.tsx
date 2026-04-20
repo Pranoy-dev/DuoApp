@@ -23,13 +23,13 @@ function LoadingDuo() {
 /** Local-only mode: no Clerk; profile lives in localStorage. */
 function LocalRootRedirect() {
   const router = useRouter();
-  const { state, ready } = useStore();
+  const { state, ready, profileResolved } = useStore();
 
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || !profileResolved) return;
     if (!state.me) router.replace("/onboarding");
     else router.replace("/today");
-  }, [ready, state.me, router]);
+  }, [ready, profileResolved, state.me, router]);
 
   return <LoadingDuo />;
 }
@@ -40,7 +40,7 @@ function LocalRootRedirect() {
  */
 function ClerkRootRedirect({ signInPath }: { signInPath: string }) {
   const router = useRouter();
-  const { state, ready } = useStore();
+  const { state, ready, profileResolved } = useStore();
   const { isLoaded, userId } = useAuth();
 
   useEffect(() => {
@@ -50,9 +50,10 @@ function ClerkRootRedirect({ signInPath }: { signInPath: string }) {
       router.replace(signInPath);
       return;
     }
+    if (!profileResolved) return;
     if (!state.me) router.replace("/onboarding");
     else router.replace("/today");
-  }, [ready, state.me, router, isLoaded, userId, signInPath]);
+  }, [ready, profileResolved, state.me, router, isLoaded, userId, signInPath]);
 
   return <LoadingDuo />;
 }

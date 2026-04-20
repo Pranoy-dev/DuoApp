@@ -11,14 +11,14 @@ export default function AppShellLayout({
   children: React.ReactNode;
 }) {
   const router = useRouter();
-  const { state, ready } = useStore();
+  const { state, ready, profileResolved } = useStore();
 
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || !profileResolved) return;
     if (!state.me) router.replace("/onboarding");
-  }, [ready, state.me, router]);
+  }, [ready, profileResolved, state.me, router]);
 
-  if (!ready || !state.me) {
+  if (!ready || !profileResolved || !state.me) {
     return (
       <div className="flex h-full flex-1 items-center justify-center text-sm text-muted-foreground">
         Loading…
