@@ -17,11 +17,18 @@ const DEFAULT_USER_EMOJI = "✦";
 
 type Step = "welcome" | "name" | "pair" | "invite" | "done";
 
-export default function OnboardingPage() {
+function OnboardingPageContent({
+  clerkConfigured,
+  signInUrl,
+  isLoaded,
+  userId,
+}: {
+  clerkConfigured: boolean;
+  signInUrl: string;
+  isLoaded: boolean;
+  userId: string | null | undefined;
+}) {
   const router = useRouter();
-  const duoRuntime = useDuoRuntimeEnv();
-  const clerkConfigured = Boolean(duoRuntime.clerkPublishableKey.trim());
-  const { isLoaded, userId } = useAuth();
   const { state, ready, profileResolved, createAccount, createCouple } = useStore();
   const [step, setStep] = useState<Step>("welcome");
   const [name, setName] = useState("");
@@ -33,7 +40,7 @@ export default function OnboardingPage() {
 
   useEffect(() => {
     if (clerkConfigured && isLoaded && !userId) {
-      router.replace(duoRuntime.clerkSignInUrl || "/sign-in");
+      router.replace(signInUrl || "/sign-in");
       return;
     }
     if (!ready || !profileResolved) return;
@@ -46,7 +53,7 @@ export default function OnboardingPage() {
     profileResolved,
     state.me,
     router,
-    duoRuntime.clerkSignInUrl,
+    signInUrl,
   ]);
 
   if (
@@ -297,6 +304,59 @@ export default function OnboardingPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+function ClerkOnboardingPage({
+  clerkConfigured,
+  signInUrl,
+}: {
+  clerkConfigured: boolean;
+  signInUrl: string;
+}) {
+  const { isLoaded, userId } = useAuth();
+  return (
+    <OnboardingPageContent
+      clerkConfigured={clerkConfigured}
+      signInUrl={signInUrl}
+      isLoaded={isLoaded}
+      userId={userId}
+    />
+  );
+}
+
+function LocalOnboardingPage({
+  clerkConfigured,
+  signInUrl,
+}: {
+  clerkConfigured: boolean;
+  signInUrl: string;
+}) {
+  return (
+    <OnboardingPageContent
+      clerkConfigured={clerkConfigured}
+      signInUrl={signInUrl}
+      isLoaded={true}
+      userId="local-user"
+    />
+  );
+}
+
+export default function OnboardingPage() {
+  const duoRuntime = useDuoRuntimeEnv();
+  const clerkConfigured = Boolean(duoRuntime.clerkPublishableKey.trim());
+  const signInUrl = duoRuntime.clerkSignInUrl || "/sign-in";
+
+  return clerkConfigured ? (
+    <ClerkOnboardingPage
+      clerkConfigured={clerkConfigured}
+      signInUrl={signInUrl}
+    />
+  ) : (
+    <LocalOnboardingPage
+      clerkConfigured={clerkConfigured}
+      signInUrl={signInUrl}
+    />
   );
 }
 

@@ -58,7 +58,7 @@ export default function RootLayout({
   const clerkPk = runtimeEnv.clerkPublishableKey.trim();
   const shell = (
     <StoreProvider>
-      <DeferredSnapshotSync />
+      {clerkPk ? <DeferredSnapshotSync /> : null}
       {clerkPk ? <CompletionRealtimeSync /> : null}
       <main className="phone-frame flex min-h-0 flex-col">{children}</main>
       <CheerBurst />
