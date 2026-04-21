@@ -5,12 +5,20 @@ export type DuoSyncMeta = {
   dirty: boolean;
   lastSyncedAt: string | null;
   lastServerUpdatedAt: string | null;
+  lastCursor: string | null;
+  lastRealtimeEventAt: string | null;
+  realtimeDisconnects: number;
+  fallbackPullCount: number;
 };
 
 const emptyMeta: DuoSyncMeta = {
   dirty: false,
   lastSyncedAt: null,
   lastServerUpdatedAt: null,
+  lastCursor: null,
+  lastRealtimeEventAt: null,
+  realtimeDisconnects: 0,
+  fallbackPullCount: 0,
 };
 
 export function setSyncMetaScope(scope: string): void {
@@ -33,6 +41,17 @@ export function readSyncMeta(): DuoSyncMeta {
         typeof o.lastServerUpdatedAt === "string"
           ? o.lastServerUpdatedAt
           : null,
+      lastCursor: typeof o.lastCursor === "string" ? o.lastCursor : null,
+      lastRealtimeEventAt:
+        typeof o.lastRealtimeEventAt === "string" ? o.lastRealtimeEventAt : null,
+      realtimeDisconnects:
+        typeof o.realtimeDisconnects === "number"
+          ? Math.max(0, Math.floor(o.realtimeDisconnects))
+          : 0,
+      fallbackPullCount:
+        typeof o.fallbackPullCount === "number"
+          ? Math.max(0, Math.floor(o.fallbackPullCount))
+          : 0,
     };
   } catch {
     return { ...emptyMeta };
@@ -56,12 +75,38 @@ export function markSyncDirty(): void {
 export function clearSyncDirty(args: {
   lastSyncedAt: string;
   lastServerUpdatedAt: string;
+  lastCursor?: string | null;
 }): void {
+  const prev = readSyncMeta();
   writeSyncMeta({
     dirty: false,
     lastSyncedAt: args.lastSyncedAt,
     lastServerUpdatedAt: args.lastServerUpdatedAt,
+    lastCursor: args.lastCursor ?? prev.lastCursor,
+    lastRealtimeEventAt: prev.lastRealtimeEventAt,
+    realtimeDisconnects: prev.realtimeDisconnects,
+    fallbackPullCount: prev.fallbackPullCount,
   });
+}
+
+export function updateSyncCursor(cursor: string): void {
+  const prev = readSyncMeta();
+  writeSyncMeta({ ...prev, lastCursor: cursor });
+}
+
+export function markRealtimeEventSeen(isoTs?: string): void {
+  const prev = readSyncMeta();
+  writeSyncMeta({ ...prev, lastRealtimeEventAt: isoTs ?? new Date().toISOString() });
+}
+
+export function incrementRealtimeDisconnects(): void {
+  const prev = readSyncMeta();
+  writeSyncMeta({ ...prev, realtimeDisconnects: prev.realtimeDisconnects + 1 });
+}
+
+export function incrementFallbackPullCount(): void {
+  const prev = readSyncMeta();
+  writeSyncMeta({ ...prev, fallbackPullCount: prev.fallbackPullCount + 1 });
 }
 
 export function clearSyncMetaStorage(): void {

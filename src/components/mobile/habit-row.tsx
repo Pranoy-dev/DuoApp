@@ -18,6 +18,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { HabitHistoryDialog } from "@/components/mobile/habit-history-dialog";
 
 type Props = {
   habit: Habit;
@@ -42,6 +43,7 @@ export function HabitRow({
   const info = streakFor(habit, state.completions, userId, graceEnabled);
   const today = dateKey ?? todayKey();
   const [open, setOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [draft, setDraft] = useState(() => ({
@@ -173,10 +175,18 @@ export function HabitRow({
           doneToday && "border-border/50 bg-muted/45 text-muted-foreground",
         )}
       >
-        <span
-          aria-hidden
+        <button
+          type="button"
+          aria-label={`Open history for ${habit.name}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            setHistoryOpen(true);
+          }}
+          onKeyDown={(event) => {
+            event.stopPropagation();
+          }}
           className={cn(
-            "relative z-[1] flex size-11 flex-col items-center justify-center rounded-xl bg-muted/80",
+            "relative z-[1] flex size-11 flex-col items-center justify-center rounded-xl bg-muted/80 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/45",
             doneToday &&
               "bg-foreground text-background shadow-sm ring-1 ring-foreground/20",
           )}
@@ -184,7 +194,7 @@ export function HabitRow({
           <span className="text-base font-semibold leading-none tabular-nums">
             {Math.max(totalCompletions, 1)}
           </span>
-        </span>
+        </button>
         <span
           className={cn(
             "min-w-0 flex-1",
@@ -362,6 +372,14 @@ export function HabitRow({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <HabitHistoryDialog
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        habit={habit}
+        userId={userId}
+        completions={state.completions}
+      />
     </>
   );
 }

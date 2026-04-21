@@ -16,7 +16,6 @@ import { cn } from "@/lib/utils";
 
 const TIMELINE_DAYS = 14;
 const MAX_REVIVES = 3;
-const PARTNER_POLL_MS = 12_000;
 const STAR_MAX = 5;
 
 function dateKeysLastNDays(n: number): string[] {
@@ -34,7 +33,7 @@ export default function PartnerPage() {
   const {
     state,
     revivePartnerMiss,
-    refreshBootstrapFromServer,
+    refreshDeltaFromServer,
     markPartnerUpdatesSeen,
   } = useStore();
   const me = state.me!;
@@ -43,27 +42,8 @@ export default function PartnerPage() {
 
   useEffect(() => {
     if (!duoCloudActive || !couple?.id) return;
-    void refreshBootstrapFromServer();
-  }, [duoCloudActive, couple?.id, refreshBootstrapFromServer]);
-
-  useEffect(() => {
-    if (!duoCloudActive || !couple?.id) return;
-    const id = window.setInterval(() => {
-      void refreshBootstrapFromServer();
-    }, PARTNER_POLL_MS);
-    return () => window.clearInterval(id);
-  }, [duoCloudActive, couple?.id, refreshBootstrapFromServer]);
-
-  useEffect(() => {
-    if (!duoCloudActive || !couple?.id) return;
-    const onVis = () => {
-      if (document.visibilityState === "visible") {
-        void refreshBootstrapFromServer();
-      }
-    };
-    document.addEventListener("visibilitychange", onVis);
-    return () => document.removeEventListener("visibilitychange", onVis);
-  }, [duoCloudActive, couple?.id, refreshBootstrapFromServer]);
+    void refreshDeltaFromServer();
+  }, [duoCloudActive, couple?.id, refreshDeltaFromServer]);
 
   useEffect(() => {
     markPartnerUpdatesSeen();

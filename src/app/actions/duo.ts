@@ -13,7 +13,7 @@ import {
   requireDuoContext,
 } from "@/lib/server/duo-auth";
 import { getServiceSupabase } from "@/lib/server/supabase-admin";
-import { getAppStateForClerkId } from "@/lib/server/duo-state";
+import { getAppStateForClerkId, getDeltaAppStateForClerkId } from "@/lib/server/duo-state";
 import { generateInviteCode } from "@/lib/server/invite-code";
 import {
   habitToInsert,
@@ -69,6 +69,36 @@ export async function getBootstrapStateAction(): Promise<
     if (!userId) return { ok: true, data: null };
     const state = await getAppStateForClerkId(userId);
     return { ok: true, data: state };
+  } catch (e) {
+    return err(e);
+  }
+}
+
+export async function getDeltaStateAction(input: {
+  sinceCursor: string | null;
+}): Promise<
+  DuoActionResult<{
+    state: AppState | null;
+    cursor: string;
+    changed: boolean;
+  }>
+> {
+  try {
+    if (!serverDuoCloudDataEnabled()) {
+      return {
+        ok: true,
+        data: { state: null, cursor: new Date().toISOString(), changed: false },
+      };
+    }
+    const { userId } = await auth();
+    if (!userId) {
+      return {
+        ok: true,
+        data: { state: null, cursor: new Date().toISOString(), changed: false },
+      };
+    }
+    const data = await getDeltaAppStateForClerkId(userId, input.sinceCursor);
+    return { ok: true, data };
   } catch (e) {
     return err(e);
   }

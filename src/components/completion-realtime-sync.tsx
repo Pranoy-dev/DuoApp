@@ -27,7 +27,12 @@ type CompletionEventRow = {
 export function CompletionRealtimeSync() {
   const runtime = useDuoRuntimeEnv();
   const duoCloudActive = computeDuoCloudClientConfigured(runtime);
-  const { state, applyCompletionRealtimeEvent } = useStore();
+  const {
+    state,
+    applyCompletionRealtimeEvent,
+    refreshDeltaFromServer,
+    reportRealtimeHealth,
+  } = useStore();
   const { getToken, isLoaded, userId } = useAuth();
   const coupleId = state.couple?.id ?? null;
   const clientRef = useRef<ReturnType<typeof createBrowserClient> | null>(null);
@@ -61,7 +66,7 @@ export function CompletionRealtimeSync() {
     })();
 
     const channel = supabase
-      .channel(`completion-events:${coupleId}`)
+      .channel(`duo-events:${coupleId}`)
       .on(
         "postgres_changes",
         {
@@ -72,6 +77,7 @@ export function CompletionRealtimeSync() {
         },
         (payload: RealtimePostgresInsertPayload<CompletionEventRow>) => {
           const row = payload.new as CompletionEventRow;
+          reportRealtimeHealth({ connected: true, at: row.server_ts });
           const event: CompletionRealtimeEvent = {
             operationId: row.operation_id,
             completionId: row.id,
@@ -85,7 +91,80 @@ export function CompletionRealtimeSync() {
           applyCompletionRealtimeEvent(event);
         },
       )
-      .subscribe();
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "habits",
+          filter: `couple_id=eq.${coupleId}`,
+        },
+        () => {
+          reportRealtimeHealth({ connected: true });
+          void refreshDeltaFromServer();
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "cheers",
+        },
+        () => {
+          reportRealtimeHealth({ connected: true });
+          void refreshDeltaFromServer();
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "milestones",
+        },
+        () => {
+          reportRealtimeHealth({ connected: true });
+          void refreshDeltaFromServer();
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "day_excitement",
+        },
+        () => {
+          reportRealtimeHealth({ connected: true });
+          void refreshDeltaFromServer();
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "couple_members",
+          filter: `couple_id=eq.${coupleId}`,
+        },
+        () => {
+          reportRealtimeHealth({ connected: true });
+          void refreshDeltaFromServer();
+        },
+      )
+      .subscribe((status: string) => {
+        if (status === "SUBSCRIBED") {
+          reportRealtimeHealth({ connected: true });
+        }
+        if (
+          status === "CHANNEL_ERROR" ||
+          status === "TIMED_OUT" ||
+          status === "CLOSED"
+        ) {
+          reportRealtimeHealth({ connected: false });
+        }
+      });
 
     return () => {
       cancelled = true;
@@ -99,6 +178,8 @@ export function CompletionRealtimeSync() {
     isLoaded,
     runtime.supabaseUrl,
     supabaseKey,
+    refreshDeltaFromServer,
+    reportRealtimeHealth,
     userId,
   ]);
 

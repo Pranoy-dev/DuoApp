@@ -20,8 +20,14 @@ import { useDuoRuntimeEnv } from "@/lib/duo-runtime-env";
 import {
   markSyncDirty,
   clearSyncMetaStorage,
+  clearSyncDirty,
+  incrementFallbackPullCount,
+  incrementRealtimeDisconnects,
+  markRealtimeEventSeen,
+  readSyncMeta,
   requestDeferredSnapshotFlushSoon,
   setSyncMetaScope,
+  updateSyncCursor,
 } from "@/lib/duo-sync";
 import type {
   AppState,
@@ -40,7 +46,8 @@ import { streakFor } from "./streak";
 import { MILESTONE_TIERS } from "./milestones";
 
 const LEGACY_STORAGE_KEY = "duo.state.v1";
-const PARTNER_POLL_MS = 12_000;
+const ADAPTIVE_POLL_STEPS_MS = [5_000, 10_000, 20_000, 40_000] as const;
+const STALE_SYNC_THRESHOLD_MS = 90_000;
 
 const EMPTY: AppState = {
   me: null,
@@ -281,6 +288,11 @@ export type CompletionRealtimeEvent = {
   serverTs: string;
 };
 
+type RealtimeHealthEvent = {
+  connected: boolean;
+  at?: string;
+};
+
 type StoreValue = {
   state: AppState;
   ready: boolean;
@@ -314,8 +326,12 @@ type StoreValue = {
   applyRemoteHydration: (data: AppState) => void;
   /** Live cloud: reload full state from Supabase (e.g. partner completions). */
   refreshBootstrapFromServer: () => Promise<void>;
+  /** Delta sync pull for adaptive fallback/foreground refresh. */
+  refreshDeltaFromServer: () => Promise<void>;
   /** Apply realtime completion event pushed from server. */
   applyCompletionRealtimeEvent: (event: CompletionRealtimeEvent) => void;
+  /** Realtime channel connection state updates. */
+  reportRealtimeHealth: (event: RealtimeHealthEvent) => void;
   /** Number of unseen partner updates for Partner tab badge. */
   partnerUpdatesBadge: number;
   /** Clear partner update badge after opening Partner tab. */
@@ -354,9 +370,13 @@ function DuoCloudHydration({
 function DuoCloudForegroundRefresh({
   duoCloudActive,
   onRefresh,
+  onCursor,
+  sinceCursor,
 }: {
   duoCloudActive: boolean;
   onRefresh: (s: AppState) => void;
+  onCursor: (cursor: string) => void;
+  sinceCursor: string | null;
 }) {
   const { userId, isLoaded } = useAuth();
   useEffect(() => {
@@ -366,8 +386,12 @@ function DuoCloudForegroundRefresh({
       if (debounce !== undefined) window.clearTimeout(debounce);
       debounce = window.setTimeout(() => {
         void (async () => {
-          const r = await duoActions.getBootstrapStateAction();
-          if (r.ok && r.data) onRefresh(r.data);
+          const r = await duoActions.getDeltaStateAction({
+            sinceCursor,
+          });
+          if (!r.ok) return;
+          if (r.data.state && r.data.changed) onRefresh(r.data.state);
+          if (r.data.cursor) onCursor(r.data.cursor);
         })();
       }, 500);
     };
@@ -383,7 +407,7 @@ function DuoCloudForegroundRefresh({
       document.removeEventListener("visibilitychange", onVis);
       window.removeEventListener("pageshow", pull);
     };
-  }, [duoCloudActive, isLoaded, userId, onRefresh]);
+  }, [duoCloudActive, isLoaded, onCursor, onRefresh, sinceCursor, userId]);
   return null;
 }
 
@@ -419,6 +443,7 @@ function StoreProviderCore({
   const [ready, setReady] = useState(false);
   const [profileResolved, setProfileResolved] = useState(false);
   const [partnerUpdatesBadge, setPartnerUpdatesBadge] = useState(0);
+  const [deltaCursor, setDeltaCursor] = useState<string | null>(null);
   const stateRef = useRef<AppState>(EMPTY);
   const pendingByOpRef = useRef<Map<string, PendingCompletionMutation>>(new Map());
   const latestOpByIdentityRef = useRef<Map<string, string>>(new Map());
@@ -427,6 +452,9 @@ function StoreProviderCore({
     partnerActivitySnapshot(EMPTY),
   );
   const remoteHydratedRef = useRef(false);
+  const deltaCursorRef = useRef<string | null>(null);
+  const lastSuccessfulSyncAtRef = useRef<number>(0);
+  const realtimeHealthyRef = useRef(false);
 
   const applyRemoteState = useCallback((data: AppState) => {
     const previous = previousPartnerSnapshotRef.current;
@@ -472,7 +500,46 @@ function StoreProviderCore({
     const r = await duoActions.getBootstrapStateAction();
     if (!r.ok || !r.data) return;
     applyRemoteState(r.data);
+    const nowIso = new Date().toISOString();
+    lastSuccessfulSyncAtRef.current = Date.now();
+    clearSyncDirty({
+      lastSyncedAt: nowIso,
+      lastServerUpdatedAt: nowIso,
+      lastCursor: deltaCursorRef.current,
+    });
   }, [duoCloudActive, applyRemoteState]);
+
+  const refreshDeltaFromServer = useCallback(async () => {
+    if (!duoCloudActive) return;
+    incrementFallbackPullCount();
+    const r = await duoActions.getDeltaStateAction({
+      sinceCursor: deltaCursorRef.current,
+    });
+    if (!r.ok) return;
+    if (r.data.state && r.data.changed) applyRemoteState(r.data.state);
+    if (r.data.cursor) {
+      deltaCursorRef.current = r.data.cursor;
+      setDeltaCursor(r.data.cursor);
+      updateSyncCursor(r.data.cursor);
+    }
+    const nowIso = new Date().toISOString();
+    lastSuccessfulSyncAtRef.current = Date.now();
+    clearSyncDirty({
+      lastSyncedAt: nowIso,
+      lastServerUpdatedAt: r.data.cursor || nowIso,
+      lastCursor: r.data.cursor,
+    });
+  }, [duoCloudActive, applyRemoteState]);
+
+  const reportRealtimeHealth = useCallback((event: RealtimeHealthEvent) => {
+    if (event.connected) {
+      realtimeHealthyRef.current = true;
+      markRealtimeEventSeen(event.at);
+      return;
+    }
+    if (realtimeHealthyRef.current) incrementRealtimeDisconnects();
+    realtimeHealthyRef.current = false;
+  }, []);
 
   const applyCompletionRealtimeEvent = useCallback(
     (event: CompletionRealtimeEvent) => {
@@ -492,6 +559,7 @@ function StoreProviderCore({
       }
 
       let incrementBadge = false;
+      markRealtimeEventSeen(event.serverTs);
       setState((s) => {
         const beforePartnerId = s.me
           ? s.couple?.members.find((m) => m.id !== s.me?.id)?.id
@@ -538,6 +606,14 @@ function StoreProviderCore({
 
   useEffect(() => {
     setSyncMetaScope(stateScope);
+    const meta = readSyncMeta();
+    deltaCursorRef.current = meta.lastCursor;
+    queueMicrotask(() => {
+      setDeltaCursor(meta.lastCursor);
+    });
+    lastSuccessfulSyncAtRef.current = meta.lastSyncedAt
+      ? Date.parse(meta.lastSyncedAt)
+      : 0;
   }, [stateScope]);
 
   useEffect(() => {
@@ -601,28 +677,71 @@ function StoreProviderCore({
     }
   }, [state, ready, duoCloudActive, duoRuntime.duoDeferredSnapshotSync, scopedStorageKey]);
 
-  const shouldBackgroundRefreshSoloCouple =
-    duoCloudActive && ready && Boolean(state.couple?.id) && (state.couple?.members.length ?? 0) < 2;
+  useEffect(() => {
+    if (!duoCloudActive || !ready) return;
+    const id = window.setInterval(() => {
+      const meta = readSyncMeta();
+      const staleMs = Date.now() - (lastSuccessfulSyncAtRef.current || 0);
+      const payload = {
+        p95SyncLatencyMs: staleMs,
+        realtimeDisconnectRate: meta.realtimeDisconnects,
+        fallbackPullCount: meta.fallbackPullCount,
+        deltaPayloadSize: JSON.stringify(state).length,
+        missedEventRecoveryCount: meta.fallbackPullCount,
+      };
+      window.dispatchEvent(new CustomEvent("duo:sync-metrics", { detail: payload }));
+      if (meta.fallbackPullCount > 30) {
+        console.warn("[duo-sync] fallback pull spike detected", payload);
+      }
+      if (staleMs > STALE_SYNC_THRESHOLD_MS * 2) {
+        console.warn("[duo-sync] stale sync threshold exceeded", payload);
+      }
+    }, 60_000);
+    return () => window.clearInterval(id);
+  }, [duoCloudActive, ready, state]);
+
+  const shouldAdaptiveFallback =
+    duoCloudActive && ready && Boolean(state.couple?.id);
 
   useEffect(() => {
-    if (!shouldBackgroundRefreshSoloCouple) return;
-    const pull = () => {
-      void refreshBootstrapFromServer();
+    if (!shouldAdaptiveFallback) return;
+    let pollIdx = 0;
+    let timerId: number | undefined;
+    const scheduleNext = () => {
+      const wait = ADAPTIVE_POLL_STEPS_MS[Math.min(pollIdx, ADAPTIVE_POLL_STEPS_MS.length - 1)];
+      timerId = window.setTimeout(async () => {
+        if (document.visibilityState !== "visible") {
+          scheduleNext();
+          return;
+        }
+        const staleFor = Date.now() - (lastSuccessfulSyncAtRef.current || 0);
+        const stale = staleFor > STALE_SYNC_THRESHOLD_MS;
+        if (!realtimeHealthyRef.current || stale) {
+          await refreshDeltaFromServer();
+          pollIdx = 0;
+        } else {
+          pollIdx = Math.min(pollIdx + 1, ADAPTIVE_POLL_STEPS_MS.length - 1);
+        }
+        scheduleNext();
+      }, wait);
     };
-    const id = window.setInterval(pull, PARTNER_POLL_MS);
-    const onVisible = () => {
-      if (document.visibilityState === "visible") pull();
+    const foregroundSync = () => {
+      if (document.visibilityState === "visible") {
+        pollIdx = 0;
+        void refreshDeltaFromServer();
+      }
     };
-    window.addEventListener("focus", pull);
-    window.addEventListener("pageshow", pull);
-    document.addEventListener("visibilitychange", onVisible);
+    scheduleNext();
+    window.addEventListener("focus", foregroundSync);
+    window.addEventListener("pageshow", foregroundSync);
+    document.addEventListener("visibilitychange", foregroundSync);
     return () => {
-      window.clearInterval(id);
-      window.removeEventListener("focus", pull);
-      window.removeEventListener("pageshow", pull);
-      document.removeEventListener("visibilitychange", onVisible);
+      if (timerId !== undefined) window.clearTimeout(timerId);
+      window.removeEventListener("focus", foregroundSync);
+      window.removeEventListener("pageshow", foregroundSync);
+      document.removeEventListener("visibilitychange", foregroundSync);
     };
-  }, [refreshBootstrapFromServer, shouldBackgroundRefreshSoloCouple]);
+  }, [refreshDeltaFromServer, shouldAdaptiveFallback]);
 
   const createAccount = useCallback(
     async (p: { name: string; emoji: string }) => {
@@ -1170,7 +1289,9 @@ function StoreProviderCore({
       resetAll,
       applyRemoteHydration: applyRemoteState,
       refreshBootstrapFromServer,
+      refreshDeltaFromServer,
       applyCompletionRealtimeEvent,
+      reportRealtimeHealth,
       partnerUpdatesBadge,
       markPartnerUpdatesSeen,
     }),
@@ -1195,7 +1316,9 @@ function StoreProviderCore({
       resetAll,
       applyRemoteState,
       refreshBootstrapFromServer,
+      refreshDeltaFromServer,
       applyCompletionRealtimeEvent,
+      reportRealtimeHealth,
       partnerUpdatesBadge,
       markPartnerUpdatesSeen,
     ],
@@ -1213,6 +1336,12 @@ function StoreProviderCore({
           <DuoCloudForegroundRefresh
             duoCloudActive={duoCloudActive}
             onRefresh={applyRemoteState}
+            onCursor={(cursor) => {
+              deltaCursorRef.current = cursor;
+              setDeltaCursor(cursor);
+              updateSyncCursor(cursor);
+            }}
+            sinceCursor={deltaCursor}
           />
         </>
       ) : null}

@@ -178,3 +178,107 @@ export async function getAppStateForClerkId(
     dayExcitement,
   };
 }
+
+async function getStateCursor(args: {
+  coupleId: string;
+  memberIds: string[];
+  habitIds: string[];
+}): Promise<string> {
+  const supabase = getServiceSupabase();
+  if (!supabase) return new Date(0).toISOString();
+  const stamps: string[] = [];
+  const collect = (value: string | null | undefined) => {
+    if (typeof value === "string" && value) stamps.push(value);
+  };
+
+  const { data: coupleRow } = await supabase
+    .from("couples")
+    .select("created_at")
+    .eq("id", args.coupleId)
+    .maybeSingle();
+  collect(coupleRow?.created_at as string | undefined);
+
+  const { data: memberRows } = await supabase
+    .from("couple_members")
+    .select("created_at")
+    .eq("couple_id", args.coupleId);
+  for (const row of memberRows ?? []) collect(row.created_at as string | undefined);
+
+  const { data: userRows } = await supabase
+    .from("users")
+    .select("updated_at")
+    .in("id", args.memberIds);
+  for (const row of userRows ?? []) collect(row.updated_at as string | undefined);
+
+  const { data: habitRows } = await supabase
+    .from("habits")
+    .select("updated_at")
+    .eq("couple_id", args.coupleId);
+  for (const row of habitRows ?? []) collect(row.updated_at as string | undefined);
+
+  if (args.habitIds.length > 0) {
+    const { data: completionRows } = await supabase
+      .from("habit_completions")
+      .select("updated_at")
+      .in("habit_id", args.habitIds)
+      .order("updated_at", { ascending: false })
+      .limit(2000);
+    for (const row of completionRows ?? []) collect(row.updated_at as string | undefined);
+
+    const { data: milestoneRows } = await supabase
+      .from("milestones")
+      .select("achieved_at")
+      .in("habit_id", args.habitIds)
+      .in("user_id", args.memberIds);
+    for (const row of milestoneRows ?? []) collect(row.achieved_at as string | undefined);
+  }
+
+  const cheerOr = args.memberIds
+    .flatMap((id) => [`from_user.eq.${id}`, `to_user.eq.${id}`])
+    .join(",");
+  if (cheerOr) {
+    const { data: cheerRows } = await supabase
+      .from("cheers")
+      .select("created_at,read_at")
+      .or(cheerOr)
+      .order("created_at", { ascending: false })
+      .limit(2000);
+    for (const row of cheerRows ?? []) {
+      collect(row.created_at as string | undefined);
+      collect(row.read_at as string | undefined);
+    }
+  }
+
+  const { data: excitementRows } = await supabase
+    .from("day_excitement")
+    .select("saved_at")
+    .in("user_id", args.memberIds)
+    .order("saved_at", { ascending: false })
+    .limit(500);
+  for (const row of excitementRows ?? []) collect(row.saved_at as string | undefined);
+
+  return stamps.length ? stamps.sort().at(-1)! : new Date(0).toISOString();
+}
+
+export async function getDeltaAppStateForClerkId(
+  clerkId: string,
+  sinceCursor: string | null,
+): Promise<{ state: AppState | null; cursor: string; changed: boolean }> {
+  const state = await getAppStateForClerkId(clerkId);
+  if (!state?.me || !state.couple) {
+    return {
+      state,
+      cursor: new Date().toISOString(),
+      changed: true,
+    };
+  }
+  const memberIds = state.couple.members.map((m) => m.id);
+  const habitIds = state.habits.map((h) => h.id);
+  const cursor = await getStateCursor({
+    coupleId: state.couple.id,
+    memberIds,
+    habitIds,
+  });
+  const changed = !sinceCursor || cursor > sinceCursor;
+  return { state, cursor, changed };
+}
