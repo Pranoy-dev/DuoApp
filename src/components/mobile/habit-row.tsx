@@ -55,6 +55,7 @@ export function HabitRow({
   const doneToday = state.completions.some(
     (c) => c.habitId === habit.id && c.userId === userId && c.date === today,
   );
+  const completionDisabled = !interactive;
   const totalCompletions = state.completions.filter(
     (c) => c.habitId === habit.id && c.userId === userId,
   ).length;
@@ -85,9 +86,10 @@ export function HabitRow({
   const onToggleCompletion = (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     if (!interactive) return;
-    void toggleCompletion(habit.id, userId).catch((e: unknown) => {
-      toast.error(e instanceof Error ? e.message : "Could not sync this change.");
-    });
+    void toggleCompletion(habit.id, userId)
+      .catch((e: unknown) => {
+        toast.error(e instanceof Error ? e.message : "Could not sync this change.");
+      });
     if (typeof navigator !== "undefined" && "vibrate" in navigator) {
       try {
         navigator.vibrate(doneToday ? 8 : [6, 18, 10]);
@@ -155,7 +157,11 @@ export function HabitRow({
       <div
         role={canEdit ? "button" : undefined}
         tabIndex={canEdit ? 0 : -1}
-        onClick={canEdit ? () => setOpen(true) : undefined}
+        onClick={
+          canEdit
+            ? () => setOpen(true)
+            : undefined
+        }
         onKeyDown={
           canEdit
             ? (e) => {
@@ -231,10 +237,10 @@ export function HabitRow({
             type="button"
             aria-label={doneToday ? "Mark habit as not done" : "Mark habit as done"}
             onClick={onToggleCompletion}
-            disabled={!interactive}
+            disabled={completionDisabled}
             aria-pressed={doneToday}
             className={cn(
-              "relative flex size-9 shrink-0 items-center justify-center rounded-full border transition-all",
+              "relative z-[2] flex size-9 shrink-0 items-center justify-center rounded-full border transition-all",
               doneToday
                 ? "border-transparent bg-foreground text-background"
                 : "border-border/80 bg-background text-muted-foreground group-hover:border-foreground/40",

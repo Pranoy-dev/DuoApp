@@ -34,6 +34,9 @@ export function DayCompleteCelebration() {
   const [quote, setQuote] = useState<CachedQuote | null>(null);
   const confettiHandleRef = useRef<{ reset: () => void } | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const handleReveal = useCallback(() => {
+    setRevealed(true);
+  }, []);
 
   const loadQuote = useCallback(
     async (dateKey: string) => {
@@ -188,7 +191,10 @@ export function DayCompleteCelebration() {
           exit={{ opacity: 0 }}
           transition={{ duration: 0.24 }}
           className="fixed inset-0 z-[60] flex items-center justify-center"
-          onClick={() => acknowledge()}
+          onClick={() => {
+            if (!revealed) return;
+            acknowledge();
+          }}
         >
           <div
             aria-hidden
@@ -223,7 +229,7 @@ export function DayCompleteCelebration() {
                   exit={{ opacity: 0, scale: 0.8, transition: { duration: 0.2 } }}
                   className="flex items-center justify-center"
                 >
-                  <GiftBox size={172} onReveal={() => setRevealed(true)} />
+                  <GiftBox size={172} onReveal={handleReveal} clickable />
                 </motion.div>
               ) : (
                 <motion.div

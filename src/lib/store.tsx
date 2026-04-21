@@ -344,25 +344,28 @@ function DuoCloudHydration({
   duoCloudActive,
   onHydrated,
   onSettled,
+  nextRequestSeq,
 }: {
   duoCloudActive: boolean;
-  onHydrated: (s: AppState) => void;
+  onHydrated: (s: AppState, requestSeq: number) => void;
   onSettled: () => void;
+  nextRequestSeq: () => number;
 }) {
   const { userId, isLoaded } = useAuth();
   useEffect(() => {
     if (!duoCloudActive || !isLoaded || !userId) return;
     let cancelled = false;
     void (async () => {
+      const requestSeq = nextRequestSeq();
       const r = await duoActions.getBootstrapStateAction();
       if (cancelled) return;
-      if (r.ok && r.data) onHydrated(r.data);
+      if (r.ok && r.data) onHydrated(r.data, requestSeq);
       onSettled();
     })();
     return () => {
       cancelled = true;
     };
-  }, [duoCloudActive, userId, isLoaded, onHydrated, onSettled]);
+  }, [duoCloudActive, userId, isLoaded, nextRequestSeq, onHydrated, onSettled]);
   return null;
 }
 
@@ -372,11 +375,13 @@ function DuoCloudForegroundRefresh({
   onRefresh,
   onCursor,
   sinceCursor,
+  nextRequestSeq,
 }: {
   duoCloudActive: boolean;
-  onRefresh: (s: AppState) => void;
+  onRefresh: (s: AppState, requestSeq: number) => void;
   onCursor: (cursor: string) => void;
   sinceCursor: string | null;
+  nextRequestSeq: () => number;
 }) {
   const { userId, isLoaded } = useAuth();
   useEffect(() => {
@@ -386,11 +391,12 @@ function DuoCloudForegroundRefresh({
       if (debounce !== undefined) window.clearTimeout(debounce);
       debounce = window.setTimeout(() => {
         void (async () => {
+          const requestSeq = nextRequestSeq();
           const r = await duoActions.getDeltaStateAction({
             sinceCursor,
           });
           if (!r.ok) return;
-          if (r.data.state && r.data.changed) onRefresh(r.data.state);
+          if (r.data.state && r.data.changed) onRefresh(r.data.state, requestSeq);
           if (r.data.cursor) onCursor(r.data.cursor);
         })();
       }, 500);
@@ -407,7 +413,7 @@ function DuoCloudForegroundRefresh({
       document.removeEventListener("visibilitychange", onVis);
       window.removeEventListener("pageshow", pull);
     };
-  }, [duoCloudActive, isLoaded, onCursor, onRefresh, sinceCursor, userId]);
+  }, [duoCloudActive, isLoaded, nextRequestSeq, onCursor, onRefresh, sinceCursor, userId]);
   return null;
 }
 
@@ -452,11 +458,27 @@ function StoreProviderCore({
     partnerActivitySnapshot(EMPTY),
   );
   const remoteHydratedRef = useRef(false);
+  const remoteRequestSeqRef = useRef(0);
+  const lastAppliedRemoteRequestSeqRef = useRef(0);
   const deltaCursorRef = useRef<string | null>(null);
   const lastSuccessfulSyncAtRef = useRef<number>(0);
   const realtimeHealthyRef = useRef(false);
 
-  const applyRemoteState = useCallback((data: AppState) => {
+  const nextRemoteRequestSeq = useCallback(() => {
+    remoteRequestSeqRef.current += 1;
+    return remoteRequestSeqRef.current;
+  }, []);
+
+  const applyRemoteState = useCallback((data: AppState, requestSeq?: number, sourceTag?: string) => {
+    if (
+      typeof requestSeq === "number" &&
+      requestSeq < lastAppliedRemoteRequestSeqRef.current
+    ) {
+      return;
+    }
+    if (typeof requestSeq === "number") {
+      lastAppliedRemoteRequestSeqRef.current = requestSeq;
+    }
     const previous = previousPartnerSnapshotRef.current;
     const nextState = applyReplenishToState({
       ...EMPTY,
@@ -490,16 +512,15 @@ function StoreProviderCore({
       remoteHydratedRef.current = true;
     }
     previousPartnerSnapshotRef.current = next;
-    setState(
-      nextState,
-    );
+    setState(nextState);
   }, []);
 
   const refreshBootstrapFromServer = useCallback(async () => {
     if (!duoCloudActive) return;
+    const requestSeq = nextRemoteRequestSeq();
     const r = await duoActions.getBootstrapStateAction();
     if (!r.ok || !r.data) return;
-    applyRemoteState(r.data);
+    applyRemoteState(r.data, requestSeq, 'refreshBootstrap');
     const nowIso = new Date().toISOString();
     lastSuccessfulSyncAtRef.current = Date.now();
     clearSyncDirty({
@@ -507,16 +528,17 @@ function StoreProviderCore({
       lastServerUpdatedAt: nowIso,
       lastCursor: deltaCursorRef.current,
     });
-  }, [duoCloudActive, applyRemoteState]);
+  }, [duoCloudActive, applyRemoteState, nextRemoteRequestSeq]);
 
   const refreshDeltaFromServer = useCallback(async () => {
     if (!duoCloudActive) return;
     incrementFallbackPullCount();
+    const requestSeq = nextRemoteRequestSeq();
     const r = await duoActions.getDeltaStateAction({
       sinceCursor: deltaCursorRef.current,
     });
     if (!r.ok) return;
-    if (r.data.state && r.data.changed) applyRemoteState(r.data.state);
+    if (r.data.state && r.data.changed) applyRemoteState(r.data.state, requestSeq, 'refreshDelta');
     if (r.data.cursor) {
       deltaCursorRef.current = r.data.cursor;
       setDeltaCursor(r.data.cursor);
@@ -529,7 +551,7 @@ function StoreProviderCore({
       lastServerUpdatedAt: r.data.cursor || nowIso,
       lastCursor: r.data.cursor,
     });
-  }, [duoCloudActive, applyRemoteState]);
+  }, [duoCloudActive, applyRemoteState, nextRemoteRequestSeq]);
 
   const reportRealtimeHealth = useCallback((event: RealtimeHealthEvent) => {
     if (event.connected) {
@@ -984,12 +1006,20 @@ function StoreProviderCore({
 
   const toggleCompletion = useCallback(
     async (habitId: string, userId: string, date = todayKey()) => {
+      const identity = completionIdentity(habitId, userId, date);
+      const existingOperationId = latestOpByIdentityRef.current.get(identity);
+      if (
+        existingOperationId &&
+        pendingByOpRef.current.has(existingOperationId)
+      ) {
+        return;
+      }
       const previousDone = stateRef.current.completions.some(
         (c) => c.habitId === habitId && c.userId === userId && c.date === date,
       );
       const nextDone = !previousDone;
       const operationId = uid("op");
-      const identity = completionIdentity(habitId, userId, date);
+      const requestSeq = nextRemoteRequestSeq();
 
       pendingByOpRef.current.set(operationId, {
         operationId,
@@ -1060,12 +1090,17 @@ function StoreProviderCore({
         latestOpByIdentityRef.current.delete(identity);
       }
       seenOperationIdsRef.current.add(operationId);
-      applyRemoteState(r.data.state);
+      const pendingCountAfterAck = pendingByOpRef.current.size;
+      if (pendingCountAfterAck > 0) {
+        return;
+      }
+      applyRemoteState(r.data.state, requestSeq, 'toggleResponse');
     },
     [
       applyRemoteState,
       duoCloudActive,
       duoRuntime.duoDeferredSnapshotSync,
+      nextRemoteRequestSeq,
     ],
   );
 
@@ -1330,12 +1365,14 @@ function StoreProviderCore({
         <>
           <DuoCloudHydration
             duoCloudActive={duoCloudActive}
-            onHydrated={applyRemoteState}
+            nextRequestSeq={nextRemoteRequestSeq}
+            onHydrated={(data, requestSeq) => applyRemoteState(data, requestSeq)}
             onSettled={() => setProfileResolved(true)}
           />
           <DuoCloudForegroundRefresh
             duoCloudActive={duoCloudActive}
-            onRefresh={applyRemoteState}
+            nextRequestSeq={nextRemoteRequestSeq}
+            onRefresh={(data, requestSeq) => applyRemoteState(data, requestSeq)}
             onCursor={(cursor) => {
               deltaCursorRef.current = cursor;
               setDeltaCursor(cursor);

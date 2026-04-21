@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 
 type GiftBoxProps = {
   size?: number;
   onReveal?: () => void;
   revealDelayMs?: number;
+  clickable?: boolean;
 };
 
 type Sparkle = {
@@ -38,18 +39,27 @@ function buildSparkles(count: number): Sparkle[] {
  * `onReveal` so the parent can fade the reward card in. Uses duo/accent CSS
  * variables so the look stays brand-synced with the rest of the app.
  */
-export function GiftBox({ size = 168, onReveal, revealDelayMs = 1000 }: GiftBoxProps) {
+export function GiftBox({
+  size = 168,
+  onReveal,
+  revealDelayMs = 1000,
+  clickable = false,
+}: GiftBoxProps) {
   const reduceMotion = useReducedMotion();
   const sparkles = useMemo(() => buildSparkles(10), []);
   const firedRef = useRef(false);
 
-  useEffect(() => {
+  const fireReveal = useCallback(() => {
     if (firedRef.current) return;
     firedRef.current = true;
+    onReveal?.();
+  }, [onReveal]);
+
+  useEffect(() => {
     const delay = reduceMotion ? 120 : revealDelayMs;
-    const t = window.setTimeout(() => onReveal?.(), delay);
+    const t = window.setTimeout(() => fireReveal(), delay);
     return () => window.clearTimeout(t);
-  }, [onReveal, reduceMotion, revealDelayMs]);
+  }, [fireReveal, reduceMotion, revealDelayMs]);
 
   const wiggle = reduceMotion
     ? undefined
@@ -61,9 +71,23 @@ export function GiftBox({ size = 168, onReveal, revealDelayMs = 1000 }: GiftBoxP
 
   return (
     <div
-      className="relative flex items-center justify-center"
+      className={`relative flex items-center justify-center ${clickable ? "cursor-pointer" : ""}`}
       style={{ width: size, height: size }}
-      aria-hidden
+      aria-label={clickable ? "Open gift" : undefined}
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onClick={clickable ? fireReveal : undefined}
+      onKeyDown={
+        clickable
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                fireReveal();
+              }
+            }
+          : undefined
+      }
+      aria-hidden={clickable ? undefined : true}
     >
       {!reduceMotion &&
         sparkles.map((s) => (

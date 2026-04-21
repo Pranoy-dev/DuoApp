@@ -3,10 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "@/lib/store";
 import { todayKey } from "@/lib/date";
-import {
-  hasSeenCelebrationFor,
-  markCelebrationSeen,
-} from "@/lib/quotes-storage";
 
 export type DayCompleteTriggerState = {
   active: boolean;
@@ -18,8 +14,7 @@ export type DayCompleteTriggerState = {
 
 /**
  * Fires once on the edge transition from "not all done today" → "all done today".
- * Re-completing after an uncheck does not re-trigger the same date, and refreshes
- * don't replay it (a seen-flag is persisted per-date per-scope).
+ * If habits are unchecked and then completed again, it re-triggers.
  */
 export function useDayCompleteTrigger(): DayCompleteTriggerState {
   const { state } = useStore();
@@ -67,19 +62,16 @@ export function useDayCompleteTrigger(): DayCompleteTriggerState {
     prevAllDoneRef.current = allDone;
     if (prev === null) return;
     if (!prev && allDone) {
-      if (!hasSeenCelebrationFor(date)) {
-        queueMicrotask(() => setActive(true));
-      }
+      queueMicrotask(() => setActive(true));
     }
     if (prev && !allDone) {
       queueMicrotask(() => setActive(false));
     }
-  }, [allDone, date, me]);
+  }, [allDone, date, me, doneCount, totalHabits]);
 
   const acknowledge = useCallback(() => {
-    markCelebrationSeen(date);
     setActive(false);
-  }, [date]);
+  }, []);
 
   return {
     active,
