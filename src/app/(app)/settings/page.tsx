@@ -1,9 +1,11 @@
 "use client";
 
 import { UserButton } from "@clerk/nextjs";
-import { useMemo, useState } from "react";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Share2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { LoadingScreen } from "@/components/mobile/loading-screen";
 import { MobileScreen } from "@/components/mobile/mobile-screen";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -18,13 +20,15 @@ import { useStore } from "@/lib/store";
 import { habitIntent } from "@/lib/types";
 
 export default function SettingsPage() {
+  const router = useRouter();
   const duoRuntime = useDuoRuntimeEnv();
   const duoCloudActive = computeDuoCloudClientConfigured(duoRuntime);
   const deferredSnapshot =
     computeDeferredSnapshotClientEnabled(duoRuntime) && !duoCloudActive;
   const clerkConfigured = Boolean(duoRuntime.clerkPublishableKey.trim());
   const [syncUiTick, setSyncUiTick] = useState(0);
-  const syncMeta = useMemo(() => readSyncMeta(), [syncUiTick]);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const syncMeta = readSyncMeta();
   const {
     state,
     signOut,
@@ -66,6 +70,17 @@ export default function SettingsPage() {
   };
 
   const partner = couple?.members.find((m) => m.id !== me.id);
+
+  if (loggingOut) {
+    return (
+      <MobileScreen eyebrow="Settings" title="Signing out">
+        <LoadingScreen
+          title="Logging out..."
+          subtitle="Securing your session"
+        />
+      </MobileScreen>
+    );
+  }
 
   return (
     <MobileScreen
@@ -194,7 +209,7 @@ export default function SettingsPage() {
           <div className="min-w-0">
             <p className="text-[13px] font-semibold">Monthly grace</p>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
-              One missed day a month doesn't break a streak.
+              One missed day a month doesn&apos;t break a streak.
             </p>
           </div>
           <Switch
@@ -258,7 +273,18 @@ export default function SettingsPage() {
         size="sm"
         className="mb-2 w-full"
         onClick={() => {
-          void signOut();
+          void (async () => {
+            setLoggingOut(true);
+            await signOut();
+            const target = clerkConfigured
+              ? duoRuntime.clerkSignInUrl || "/sign-in"
+              : "/";
+            if (typeof window !== "undefined") {
+              window.location.replace(target);
+            } else {
+              router.replace(target);
+            }
+          })();
         }}
       >
         Log out

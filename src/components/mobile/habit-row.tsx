@@ -1,6 +1,6 @@
 "use client";
 
-import { type MouseEvent, useEffect, useMemo, useState } from "react";
+import { type MouseEvent, useMemo, useState } from "react";
 import { Check } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -44,13 +44,18 @@ export function HabitRow({
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [name, setName] = useState(habit.name);
-  const [visibility, setVisibility] = useState(habit.visibility);
-  const [timesPerWeek, setTimesPerWeek] = useState(habit.targetPerWeek ?? 4);
-  const [breakGoalDays, setBreakGoalDays] = useState(habit.breakGoalDays ?? 30);
+  const [draft, setDraft] = useState(() => ({
+    name: habit.name,
+    visibility: habit.visibility,
+    timesPerWeek: habit.targetPerWeek ?? 4,
+    breakGoalDays: habit.breakGoalDays ?? 30,
+  }));
   const doneToday = state.completions.some(
     (c) => c.habitId === habit.id && c.userId === userId && c.date === today,
   );
+  const totalCompletions = state.completions.filter(
+    (c) => c.habitId === habit.id && c.userId === userId,
+  ).length;
   const resolvedIntent = habitIntent(habit);
   const isBreak =
     resolvedIntent === "break" &&
@@ -72,21 +77,8 @@ export function HabitRow({
     }
     const left = doneToday ? 0 : 1;
     return `${left} left today`;
-  }, [doneToday, habit.breakGoalDays, habit.type, info.current, isBreak, weekInfo]);
+  }, [doneToday, habit.breakGoalDays, habit.type, info, isBreak, weekInfo]);
 
-  useEffect(() => {
-    if (!open) return;
-    setName(habit.name);
-    setVisibility(habit.visibility);
-    setTimesPerWeek(habit.targetPerWeek ?? 4);
-    setBreakGoalDays(habit.breakGoalDays ?? 30);
-  }, [open, habit]);
-
-  useEffect(() => {
-    if (!open) return;
-    const exists = state.habits.some((h) => h.id === habit.id);
-    if (!exists) setOpen(false);
-  }, [open, state.habits, habit.id]);
 
   const onToggleCompletion = (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
@@ -104,35 +96,34 @@ export function HabitRow({
   };
 
   const canEdit = Boolean(me && habit.ownerId === me.id && interactive);
+  const habitStillExists = state.habits.some((h) => h.id === habit.id);
   const targetValid =
     habit.type === "frequency"
-      ? Number.isFinite(timesPerWeek) && timesPerWeek >= 1 && timesPerWeek <= 7
-      : Number.isFinite(breakGoalDays) && breakGoalDays >= 1 && breakGoalDays <= 365;
+      ? Number.isFinite(draft.timesPerWeek) &&
+        draft.timesPerWeek >= 1 &&
+        draft.timesPerWeek <= 7
+      : Number.isFinite(draft.breakGoalDays) &&
+        draft.breakGoalDays >= 1 &&
+        draft.breakGoalDays <= 365;
   const dirty = useMemo(() => {
-    if (name.trim() !== habit.name) return true;
-    if (visibility !== habit.visibility) return true;
+    if (draft.name.trim() !== habit.name) return true;
+    if (draft.visibility !== habit.visibility) return true;
     if (habit.type === "frequency") {
-      return Math.floor(timesPerWeek) !== Math.floor(habit.targetPerWeek ?? 0);
+      return Math.floor(draft.timesPerWeek) !== Math.floor(habit.targetPerWeek ?? 0);
     }
-    return Math.floor(breakGoalDays) !== Math.floor(habit.breakGoalDays ?? 0);
-  }, [
-    name,
-    visibility,
-    habit,
-    timesPerWeek,
-    breakGoalDays,
-  ]);
-  const canSave = canEdit && targetValid && name.trim().length > 0 && dirty && !saving;
+    return Math.floor(draft.breakGoalDays) !== Math.floor(habit.breakGoalDays ?? 0);
+  }, [draft, habit]);
+  const canSave = canEdit && targetValid && draft.name.trim().length > 0 && dirty && !saving;
 
   const onSave = async () => {
     if (!canSave) return;
     setSaving(true);
     try {
       await updateHabit(habit.id, {
-        name: name.trim(),
-        visibility,
-        targetPerWeek: habit.type === "frequency" ? Math.floor(timesPerWeek) : undefined,
-        breakGoalDays: habit.type === "daily" ? Math.floor(breakGoalDays) : undefined,
+        name: draft.name.trim(),
+        visibility: draft.visibility,
+        targetPerWeek: habit.type === "frequency" ? Math.floor(draft.timesPerWeek) : undefined,
+        breakGoalDays: habit.type === "daily" ? Math.floor(draft.breakGoalDays) : undefined,
       });
       toast.success("Habit updated");
       setOpen(false);
@@ -191,7 +182,7 @@ export function HabitRow({
           )}
         >
           <span className="text-base font-semibold leading-none tabular-nums">
-            {Math.max(info.current, 1)}
+            {Math.max(totalCompletions, 1)}
           </span>
         </span>
         <span
@@ -250,7 +241,20 @@ export function HabitRow({
         ) : null}
       </div>
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog
+        open={open && habitStillExists}
+        onOpenChange={(nextOpen) => {
+          if (nextOpen) {
+            setDraft({
+              name: habit.name,
+              visibility: habit.visibility,
+              timesPerWeek: habit.targetPerWeek ?? 4,
+              breakGoalDays: habit.breakGoalDays ?? 30,
+            });
+          }
+          setOpen(nextOpen);
+        }}
+      >
         <DialogContent className="rounded-3xl">
           <DialogHeader>
             <DialogTitle>Edit habit</DialogTitle>
@@ -263,17 +267,17 @@ export function HabitRow({
               <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                 Name
               </span>
-              <Input value={name} onChange={(e) => setName(e.target.value)} />
+              <Input value={draft.name} onChange={(e) => setDraft((prev) => ({ ...prev, name: e.target.value }))} />
             </label>
             <div className="grid gap-2">
               <p className="text-xs font-medium text-muted-foreground">Visibility</p>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  onClick={() => setVisibility("shared")}
+                  onClick={() => setDraft((prev) => ({ ...prev, visibility: "shared" }))}
                   className={cn(
                     "rounded-2xl border px-3 py-3 text-left text-sm font-semibold transition-colors",
-                    visibility === "shared"
+                    draft.visibility === "shared"
                       ? "border-foreground bg-foreground text-background"
                       : "border-border hover:border-foreground/40",
                   )}
@@ -285,10 +289,10 @@ export function HabitRow({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setVisibility("solo")}
+                  onClick={() => setDraft((prev) => ({ ...prev, visibility: "solo" }))}
                   className={cn(
                     "rounded-2xl border px-3 py-3 text-left text-sm font-semibold transition-colors",
-                    visibility === "solo"
+                    draft.visibility === "solo"
                       ? "border-foreground bg-foreground text-background"
                       : "border-border hover:border-foreground/40",
                   )}
@@ -310,10 +314,10 @@ export function HabitRow({
                     <button
                       key={n}
                       type="button"
-                      onClick={() => setTimesPerWeek(n)}
+                      onClick={() => setDraft((prev) => ({ ...prev, timesPerWeek: n }))}
                       className={cn(
                         "min-w-[2.5rem] flex-1 rounded-xl border py-2 text-sm font-medium transition-colors",
-                        timesPerWeek === n
+                        draft.timesPerWeek === n
                           ? "border-foreground bg-foreground text-background"
                           : "border-border hover:border-foreground/40",
                       )}
@@ -333,8 +337,8 @@ export function HabitRow({
                   inputMode="numeric"
                   min={1}
                   max={365}
-                  value={breakGoalDays}
-                  onChange={(e) => setBreakGoalDays(Number(e.target.value))}
+                  value={draft.breakGoalDays}
+                  onChange={(e) => setDraft((prev) => ({ ...prev, breakGoalDays: Number(e.target.value) }))}
                 />
               </label>
             )}

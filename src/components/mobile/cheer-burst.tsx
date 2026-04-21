@@ -7,21 +7,25 @@ import { useStore } from "@/lib/store";
 export function CheerBurst() {
   const { state, markCheersRead } = useStore();
   const me = state.me;
-  const [active, setActive] = useState<string | null>(null);
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const reduceMotion = useReducedMotion();
+  const active = me
+    ? state.cheers.find((c) => c.toUserId === me.id && !c.read && !dismissed.has(c.id))
+        ?.id ?? null
+    : null;
 
   useEffect(() => {
-    if (!me) return;
-    const unread = state.cheers.find((c) => c.toUserId === me.id && !c.read);
-    if (unread) {
-      setActive(unread.id);
-      const t = setTimeout(() => {
-        setActive(null);
-        void markCheersRead();
-      }, 2200);
-      return () => clearTimeout(t);
-    }
-  }, [state.cheers, me, markCheersRead]);
+    if (!active) return;
+    const t = window.setTimeout(() => {
+      setDismissed((prev) => {
+        const next = new Set(prev);
+        next.add(active);
+        return next;
+      });
+      void markCheersRead();
+    }, 2200);
+    return () => clearTimeout(t);
+  }, [active, markCheersRead]);
 
   if (!me) return null;
 

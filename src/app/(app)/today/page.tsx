@@ -44,7 +44,7 @@ export default function TodayPage() {
       <section>
         <header className="mb-2 flex items-baseline justify-between px-0.5">
           <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-            Today's habits
+            Today&apos;s habits
           </h2>
           <span className="text-[11px] font-medium text-muted-foreground">
             {doneCount}/{totalHabits || 0} done
@@ -97,6 +97,7 @@ function AddHabitButton({
   const [timesPerWeek, setTimesPerWeek] = useState(4);
   const [breakGoalDays, setBreakGoalDays] = useState(30);
   const [shared, setShared] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
 
   const resetForm = () => {
     setName("");
@@ -107,9 +108,11 @@ function AddHabitButton({
   };
 
   const submit = async () => {
+    if (submitting) return;
     const trimmed = name.trim();
     if (!trimmed) return;
 
+    setSubmitting(true);
     try {
       if (mode === "build") {
         if (timesPerWeek < 1 || timesPerWeek > 7) return;
@@ -138,6 +141,8 @@ function AddHabitButton({
       resetForm();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not save habit");
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -156,8 +161,12 @@ function AddHabitButton({
     <Dialog
       open={open}
       onOpenChange={(o) => {
+        if (submitting && !o) return;
         setOpen(o);
-        if (!o) resetForm();
+        if (!o) {
+          resetForm();
+          setSubmitting(false);
+        }
       }}
     >
       <DialogTrigger asChild>
@@ -283,11 +292,11 @@ function AddHabitButton({
           </div>
         </div>
         <DialogFooter>
-          <Button variant="ghost" onClick={() => setOpen(false)}>
+          <Button variant="ghost" onClick={() => setOpen(false)} disabled={submitting}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={!canSubmit}>
-            Add habit
+          <Button onClick={submit} disabled={!canSubmit || submitting}>
+            {submitting ? "Adding..." : "Add habit"}
           </Button>
         </DialogFooter>
       </DialogContent>

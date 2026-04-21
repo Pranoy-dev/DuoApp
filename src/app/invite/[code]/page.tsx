@@ -106,7 +106,7 @@ export default function InviteLanding({ params }: PageProps) {
       <div className="flex flex-1 flex-col justify-center">
         <div className="text-center">
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
-            You've been invited
+            You&apos;ve been invited
           </p>
           <h1 className="mt-3 text-4xl font-semibold leading-tight tracking-tight">
             Join the pair

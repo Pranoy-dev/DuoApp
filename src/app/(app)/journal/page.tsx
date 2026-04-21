@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Star } from "lucide-react";
 import { MobileScreen } from "@/components/mobile/mobile-screen";
 import { Button } from "@/components/ui/button";
@@ -96,19 +96,7 @@ export default function JournalPage() {
 
   const formCollapsed = Boolean(todayEntry) && !wantsToEdit;
 
-  const [stars, setStars] = useState(0);
-  const [note, setNote] = useState("");
-
-  useEffect(() => {
-    if (formCollapsed) return;
-    if (todayEntry) {
-      setStars(todayEntry.stars);
-      setNote(todayEntry.note);
-    } else {
-      setStars(0);
-      setNote("");
-    }
-  }, [formCollapsed, today, todayEntry?.id, todayEntry?.stars, todayEntry?.note]);
+  const [draft, setDraft] = useState({ stars: 0, note: "" });
 
   const historyEntries = useMemo(() => {
     const list = [...(state.dayExcitement ?? [])].filter(
@@ -125,18 +113,26 @@ export default function JournalPage() {
     });
   }, [state.dayExcitement, me.id, today, wantsToEdit, todayEntry]);
 
-  const canSave = stars >= 1 && stars <= STAR_MAX;
+  const canSave = draft.stars >= 1 && draft.stars <= STAR_MAX;
 
   const handleSave = () => {
     if (!canSave) return;
     void (async () => {
       try {
-        await saveDayExcitement({ stars, note });
+        await saveDayExcitement({ stars: draft.stars, note: draft.note });
         setWantsToEdit(false);
       } catch {
         /* toast optional */
       }
     })();
+  };
+
+  const startEditing = () => {
+    setDraft({
+      stars: todayEntry?.stars ?? 0,
+      note: todayEntry?.note ?? "",
+    });
+    setWantsToEdit(true);
   };
 
   return (
@@ -147,7 +143,10 @@ export default function JournalPage() {
             How excited are you about the day?
           </p>
           <div className="mt-3">
-            <StarRow value={stars} onChange={setStars} />
+            <StarRow
+              value={draft.stars}
+              onChange={(stars) => setDraft((prev) => ({ ...prev, stars }))}
+            />
           </div>
           <label className="mt-4 block">
             <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
@@ -156,8 +155,10 @@ export default function JournalPage() {
             <textarea
               className="mt-1.5 min-h-[88px] w-full resize-y rounded-xl border border-border/80 bg-background/80 px-3 py-2 text-[14px] leading-relaxed outline-none ring-offset-background placeholder:text-muted-foreground/60 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
               placeholder="Anything on your mind…"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
+              value={draft.note}
+              onChange={(e) =>
+                setDraft((prev) => ({ ...prev, note: e.target.value }))
+              }
               maxLength={2000}
             />
           </label>
@@ -202,7 +203,7 @@ export default function JournalPage() {
               variant="outline"
               size="sm"
               className="shrink-0"
-              onClick={() => setWantsToEdit(true)}
+              onClick={startEditing}
             >
               Edit
             </Button>

@@ -530,8 +530,10 @@ function StoreProviderCore({
   }, []);
 
   useEffect(() => {
-    setState(readInitial(scopedStorageKey));
-    setReady(true);
+    queueMicrotask(() => {
+      setState(readInitial(scopedStorageKey));
+      setReady(true);
+    });
   }, [scopedStorageKey]);
 
   useEffect(() => {
@@ -539,22 +541,30 @@ function StoreProviderCore({
   }, [stateScope]);
 
   useEffect(() => {
-    setProfileResolved(false);
+    queueMicrotask(() => {
+      setProfileResolved(false);
+    });
   }, [stateScope]);
 
   useEffect(() => {
     if (!ready) return;
     if (!clerkAuthEnabled || !duoCloudActive) {
-      setProfileResolved(true);
+      queueMicrotask(() => {
+        setProfileResolved(true);
+      });
       return;
     }
     if (!clerkLoaded) return;
     if (!clerkUserId) {
-      setProfileResolved(true);
+      queueMicrotask(() => {
+        setProfileResolved(true);
+      });
       return;
     }
     if (remoteHydratedRef.current) {
-      setProfileResolved(true);
+      queueMicrotask(() => {
+        setProfileResolved(true);
+      });
     }
   }, [ready, clerkAuthEnabled, duoCloudActive, clerkLoaded, clerkUserId]);
 
@@ -638,6 +648,7 @@ function StoreProviderCore({
   );
 
   const signOut = useCallback(async () => {
+    if (clerkAuthEnabled) await runClerkSignOut();
     setState(EMPTY);
     try {
       window.localStorage.removeItem(scopedStorageKey);
@@ -645,7 +656,6 @@ function StoreProviderCore({
     } catch {
       /* ignore */
     }
-    if (clerkAuthEnabled) await runClerkSignOut();
   }, [clerkAuthEnabled, scopedStorageKey]);
 
   const createCouple = useCallback(async () => {
@@ -678,7 +688,7 @@ function StoreProviderCore({
   ]);
 
   const joinCouple = useCallback(
-    async (code: string, _partner?: Partial<Person>) => {
+    async (code: string) => {
       const normalized = code.trim().toUpperCase();
       if (!normalized) return null;
 

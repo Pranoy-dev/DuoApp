@@ -1,30 +1,49 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useStore } from "@/lib/store";
-import { MILESTONE_THEMES, type MilestoneTheme } from "@/lib/milestones";
+import { MILESTONE_THEMES } from "@/lib/milestones";
 
 export function MilestoneOverlay() {
   const { state } = useStore();
-  const [shown, setShown] = useState<Set<string>>(new Set());
-  const [active, setActive] = useState<MilestoneTheme | null>(null);
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
   const reduceMotion = useReducedMotion();
+  const activeMilestone = useMemo(() => {
+    const me = state.me;
+    if (!me) return null;
+    return (
+      state.milestones.find((m) => m.userId === me.id && !dismissedIds.has(m.id)) ??
+      null
+    );
+  }, [state.me, state.milestones, dismissedIds]);
+  const active = activeMilestone
+    ? MILESTONE_THEMES[activeMilestone.tier as keyof typeof MILESTONE_THEMES] ??
+      null
+    : null;
+  const particles = useMemo(() => {
+    if (!active) return [];
+    return Array.from({ length: 18 }, (_, i) => {
+      const angle = (i / 18) * Math.PI * 2;
+      const radius = 110 + ((i * 37) % 70);
+      return {
+        x: Math.cos(angle) * radius,
+        y: Math.sin(angle) * (radius + 70),
+      };
+    });
+  }, [active]);
 
   useEffect(() => {
-    const me = state.me;
-    if (!me) return;
-    const fresh = state.milestones.find(
-      (m) => m.userId === me.id && !shown.has(m.id),
-    );
-    if (!fresh) return;
-    setShown((s) => new Set([...s, fresh.id]));
-    const theme = MILESTONE_THEMES[fresh.tier as keyof typeof MILESTONE_THEMES];
-    if (!theme) return;
-    setActive(theme);
-    const t = setTimeout(() => setActive(null), 3200);
+    if (!activeMilestone) return;
+    const t = window.setTimeout(() => {
+      setDismissedIds((prev) => {
+        const next = new Set(prev);
+        next.add(activeMilestone.id);
+        return next;
+      });
+    }, 3200);
     return () => clearTimeout(t);
-  }, [state.milestones, state.me, shown]);
+  }, [activeMilestone]);
 
   return (
     <AnimatePresence>
@@ -38,13 +57,13 @@ export function MilestoneOverlay() {
         >
           <div className="relative flex flex-col items-center gap-6 px-8 text-center">
             {!reduceMotion &&
-              Array.from({ length: 18 }).map((_, i) => (
+              particles.map((particle, i) => (
                 <motion.span
                   key={i}
                   initial={{ x: 0, y: 0, opacity: 0 }}
                   animate={{
-                    x: (Math.random() - 0.5) * 380,
-                    y: (Math.random() - 0.5) * 520,
+                    x: particle.x,
+                    y: particle.y,
                     opacity: [0, 1, 0],
                   }}
                   transition={{

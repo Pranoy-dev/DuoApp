@@ -1,7 +1,10 @@
 "use client";
 
+import { useAuth } from "@clerk/nextjs";
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { LoadingScreen } from "@/components/mobile/loading-screen";
+import { useDuoRuntimeEnv } from "@/lib/duo-runtime-env";
 import { useStore } from "@/lib/store";
 import { TabBar } from "@/components/mobile/tab-bar";
 
@@ -11,18 +14,43 @@ export default function AppShellLayout({
   children: React.ReactNode;
 }) {
   const router = useRouter();
+  const duoRuntime = useDuoRuntimeEnv();
+  const clerkConfigured = Boolean(duoRuntime.clerkPublishableKey.trim());
+  const { isLoaded, userId } = useAuth();
   const { state, ready, profileResolved } = useStore();
 
   useEffect(() => {
+    if (clerkConfigured) {
+      if (!isLoaded) return;
+      if (!userId) {
+        router.replace(duoRuntime.clerkSignInUrl || "/sign-in");
+        return;
+      }
+    }
     if (!ready || !profileResolved) return;
     if (!state.me) router.replace("/onboarding");
-  }, [ready, profileResolved, state.me, router]);
+  }, [
+    clerkConfigured,
+    isLoaded,
+    userId,
+    ready,
+    profileResolved,
+    state.me,
+    router,
+    duoRuntime.clerkSignInUrl,
+  ]);
 
-  if (!ready || !profileResolved || !state.me) {
+  if (
+    (clerkConfigured && (!isLoaded || !userId)) ||
+    !ready ||
+    !profileResolved ||
+    !state.me
+  ) {
     return (
-      <div className="flex h-full flex-1 items-center justify-center text-sm text-muted-foreground">
-        Loading…
-      </div>
+      <LoadingScreen
+        title="Loading Duo..."
+        subtitle="Syncing your habits and partner updates"
+      />
     );
   }
 

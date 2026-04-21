@@ -27,9 +27,7 @@ export function DeferredSnapshotSync() {
   const { isLoaded, userId } = useAuth();
   const { state, ready, applyRemoteHydration } = useStore();
   const stateRef = useRef(state);
-  stateRef.current = state;
   const userIdRef = useRef(userId);
-  userIdRef.current = userId;
   const pulledRef = useRef(false);
 
   const shouldRun = deferredEnabled && !duoCloudActive && ready;
@@ -78,6 +76,14 @@ export function DeferredSnapshotSync() {
       });
     }
   }, [applyRemoteHydration]);
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  useEffect(() => {
+    userIdRef.current = userId;
+  }, [userId]);
 
   useEffect(() => {
     if (!shouldRun || !isLoaded || !userId) return;

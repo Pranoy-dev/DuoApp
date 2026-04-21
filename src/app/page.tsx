@@ -3,22 +3,9 @@
 import { useAuth } from "@clerk/nextjs";
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { LoadingScreen } from "@/components/mobile/loading-screen";
 import { useDuoRuntimeEnv } from "@/lib/duo-runtime-env";
 import { useStore } from "@/lib/store";
-
-function LoadingDuo() {
-  return (
-    <div className="flex h-full flex-1 items-center justify-center">
-      <div className="flex items-center gap-3 text-muted-foreground">
-        <span
-          aria-hidden
-          className="inline-block size-2 animate-pulse rounded-full bg-duo"
-        />
-        <span className="text-sm">Loading Duo…</span>
-      </div>
-    </div>
-  );
-}
 
 /** Local-only mode: no Clerk; profile lives in localStorage. */
 function LocalRootRedirect() {
@@ -31,7 +18,7 @@ function LocalRootRedirect() {
     else router.replace("/today");
   }, [ready, profileResolved, state.me, router]);
 
-  return <LoadingDuo />;
+  return <LoadingScreen title="Loading Duo..." subtitle="Preparing your day" />;
 }
 
 /**
@@ -42,6 +29,7 @@ function ClerkRootRedirect({ signInPath }: { signInPath: string }) {
   const router = useRouter();
   const { state, ready, profileResolved } = useStore();
   const { isLoaded, userId } = useAuth();
+  const signedOut = isLoaded && !userId;
 
   useEffect(() => {
     if (!ready) return;
@@ -55,7 +43,12 @@ function ClerkRootRedirect({ signInPath }: { signInPath: string }) {
     else router.replace("/today");
   }, [ready, profileResolved, state.me, router, isLoaded, userId, signInPath]);
 
-  return <LoadingDuo />;
+  return (
+    <LoadingScreen
+      title={signedOut ? "Logging out..." : "Loading Duo..."}
+      subtitle={signedOut ? "Redirecting to sign-in" : "Preparing your day"}
+    />
+  );
 }
 
 export default function RootRedirect() {

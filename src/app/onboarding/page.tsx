@@ -1,13 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { Copy, Share2 } from "lucide-react";
 import { ArrowRight } from "lucide-react";
+import { LoadingScreen } from "@/components/mobile/loading-screen";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useDuoRuntimeEnv } from "@/lib/duo-runtime-env";
 import { useStore } from "@/lib/store";
 
 const DEFAULT_USER_EMOJI = "✦";
@@ -16,6 +19,9 @@ type Step = "welcome" | "name" | "pair" | "invite" | "done";
 
 export default function OnboardingPage() {
   const router = useRouter();
+  const duoRuntime = useDuoRuntimeEnv();
+  const clerkConfigured = Boolean(duoRuntime.clerkPublishableKey.trim());
+  const { isLoaded, userId } = useAuth();
   const { state, ready, profileResolved, createAccount, createCouple } = useStore();
   const [step, setStep] = useState<Step>("welcome");
   const [name, setName] = useState("");
@@ -26,9 +32,36 @@ export default function OnboardingPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (clerkConfigured && isLoaded && !userId) {
+      router.replace(duoRuntime.clerkSignInUrl || "/sign-in");
+      return;
+    }
     if (!ready || !profileResolved) return;
     if (state.me) router.replace("/today");
-  }, [ready, profileResolved, state.me, router]);
+  }, [
+    clerkConfigured,
+    isLoaded,
+    userId,
+    ready,
+    profileResolved,
+    state.me,
+    router,
+    duoRuntime.clerkSignInUrl,
+  ]);
+
+  if (
+    (clerkConfigured && (!isLoaded || !userId)) ||
+    !ready ||
+    !profileResolved ||
+    state.me
+  ) {
+    return (
+      <LoadingScreen
+        title="Loading Duo..."
+        subtitle="Checking your account and profile"
+      />
+    );
+  }
 
   const buildInviteLink = (nextInviteCode: string): string => {
     if (typeof window === "undefined") return `/invite/${nextInviteCode}`;
@@ -159,7 +192,7 @@ export default function OnboardingPage() {
                     className="rounded-2xl border border-border p-4 text-left transition-colors hover:border-foreground/40"
                     disabled={working}
                   >
-                    <p className="text-base font-semibold">I'll invite my partner</p>
+                    <p className="text-base font-semibold">I&apos;ll invite my partner</p>
                     <p className="text-sm text-muted-foreground">
                       Create a pair now and share a private invite link.
                     </p>
