@@ -9,6 +9,7 @@ import { CompletionRealtimeSync } from "@/components/completion-realtime-sync";
 import { StoreProvider } from "@/lib/store";
 import { CheerBurst } from "@/components/mobile/cheer-burst";
 import { MilestoneOverlay } from "@/components/mobile/milestone-overlay";
+import { DayCompleteCelebration } from "@/components/mobile/day-complete-celebration";
 import { ClerkSignOutRegistrar } from "@/components/clerk-signout-registrar";
 import { SupabaseJwtBridge } from "@/components/supabase-jwt-bridge";
 import "./globals.css";
@@ -63,6 +64,7 @@ export default function RootLayout({
       <main className="phone-frame flex min-h-0 flex-col">{children}</main>
       <CheerBurst />
       <MilestoneOverlay />
+      <DayCompleteCelebration />
       <Toaster position="bottom-center" offset={88} />
     </StoreProvider>
   );
