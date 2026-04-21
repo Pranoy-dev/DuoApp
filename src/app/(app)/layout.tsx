@@ -40,12 +40,16 @@ export default function AppShellLayout({
     duoRuntime.clerkSignInUrl,
   ]);
 
-  if (
-    (clerkConfigured && (!isLoaded || !userId)) ||
-    !ready ||
-    !profileResolved ||
-    !state.me
-  ) {
+  if (!ready || !profileResolved || !state.me) {
+    return (
+      <LoadingScreen
+        title="Loading Duo..."
+        subtitle="Syncing your habits and partner updates"
+      />
+    );
+  }
+
+  if (clerkConfigured && (!isLoaded || !userId)) {
     return (
       <LoadingScreen
         title="Loading Duo..."
