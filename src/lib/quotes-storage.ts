@@ -7,6 +7,14 @@ export type CachedQuote = {
   author: string | null;
 };
 
+type CachedQuoteEnvelopeV2 = {
+  schemaVersion: 2;
+  quote: CachedQuote;
+  dateKey: string;
+  scope: string;
+  prefetchedAt: string;
+};
+
 export function setCelebrationStorageScope(next: string): void {
   scope = next && next.length > 0 ? next : LEGACY_SCOPE;
 }
@@ -46,15 +54,47 @@ export function readCachedQuote(dateKey: string): CachedQuote | null {
   try {
     const raw = window.localStorage.getItem(quoteKey(dateKey));
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<CachedQuote>;
-    if (!parsed || typeof parsed.text !== "string" || !parsed.text.trim()) {
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      "schemaVersion" in parsed &&
+      (parsed as { schemaVersion?: unknown }).schemaVersion === 2
+    ) {
+      const envelope = parsed as Partial<CachedQuoteEnvelopeV2>;
+      if (
+        envelope.quote &&
+        typeof envelope.quote.text === "string" &&
+        envelope.quote.text.trim() &&
+        envelope.dateKey === dateKey &&
+        envelope.scope === scope
+      ) {
+        return {
+          id: typeof envelope.quote.id === "string" ? envelope.quote.id : null,
+          text: envelope.quote.text,
+          author:
+            typeof envelope.quote.author === "string"
+              ? envelope.quote.author
+              : null,
+        };
+      }
       return null;
     }
-    return {
-      id: typeof parsed.id === "string" ? parsed.id : null,
-      text: parsed.text,
-      author: typeof parsed.author === "string" ? parsed.author : null,
-    };
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      "text" in parsed &&
+      typeof (parsed as { text?: unknown }).text === "string" &&
+      (parsed as { text: string }).text.trim()
+    ) {
+      const legacy = parsed as Partial<CachedQuote>;
+      return {
+        id: typeof legacy.id === "string" ? legacy.id : null,
+        text: legacy.text as string,
+        author: typeof legacy.author === "string" ? legacy.author : null,
+      };
+    }
+    return null;
   } catch {
     return null;
   }
@@ -63,7 +103,14 @@ export function readCachedQuote(dateKey: string): CachedQuote | null {
 export function writeCachedQuote(dateKey: string, quote: CachedQuote): void {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(quoteKey(dateKey), JSON.stringify(quote));
+    const payload: CachedQuoteEnvelopeV2 = {
+      schemaVersion: 2,
+      quote,
+      dateKey,
+      scope,
+      prefetchedAt: new Date().toISOString(),
+    };
+    window.localStorage.setItem(quoteKey(dateKey), JSON.stringify(payload));
   } catch {
     /* ignore */
   }

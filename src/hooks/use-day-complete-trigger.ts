@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "@/lib/store";
 import { todayKey } from "@/lib/date";
+import {
+  hasSeenCelebrationFor,
+  markCelebrationSeen,
+} from "@/lib/quotes-storage";
 
 export type DayCompleteTriggerState = {
   active: boolean;
@@ -62,6 +66,7 @@ export function useDayCompleteTrigger(): DayCompleteTriggerState {
     prevAllDoneRef.current = allDone;
     if (prev === null) return;
     if (!prev && allDone) {
+      if (hasSeenCelebrationFor(date)) return;
       queueMicrotask(() => setActive(true));
     }
     if (prev && !allDone) {
@@ -70,8 +75,9 @@ export function useDayCompleteTrigger(): DayCompleteTriggerState {
   }, [allDone, date, me, doneCount, totalHabits]);
 
   const acknowledge = useCallback(() => {
+    markCelebrationSeen(date);
     setActive(false);
-  }, []);
+  }, [date]);
 
   return {
     active,

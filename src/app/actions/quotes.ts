@@ -3,6 +3,7 @@
 import { auth } from "@clerk/nextjs/server";
 import {
   getDailyQuoteForClerkId,
+  peekDailyQuoteForClerkId,
   getDailyQuoteForSeed,
   type DailyQuote,
 } from "@/lib/server/quotes";
@@ -30,6 +31,37 @@ export async function getDailyQuoteAction(input: {
     const { userId } = await auth();
     if (userId) {
       const quote = await getDailyQuoteForClerkId(userId);
+      return { ok: true, data: quote };
+    }
+    if (input.localSeed) {
+      const quote = await getDailyQuoteForSeed(input.localSeed, input.dateKey);
+      return { ok: true, data: quote };
+    }
+    return { ok: true, data: null };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Unknown error";
+    return { ok: false, code: "error", message };
+  }
+}
+
+/**
+ * Preview next quote without advancing per-user rotation.
+ * Used for near-completion prefetch so reveal can be instant.
+ */
+export async function peekDailyQuoteAction(input: {
+  dateKey: string;
+  localSeed?: string;
+}): Promise<QuoteActionResult> {
+  try {
+    if (!serverDuoServiceStackConfigured()) {
+      return { ok: true, data: null };
+    }
+    if (!input.dateKey) {
+      return { ok: false, code: "bad_request", message: "Missing dateKey" };
+    }
+    const { userId } = await auth();
+    if (userId) {
+      const quote = await peekDailyQuoteForClerkId(userId);
       return { ok: true, data: quote };
     }
     if (input.localSeed) {

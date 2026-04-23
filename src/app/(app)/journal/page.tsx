@@ -361,7 +361,7 @@ export default function JournalPage() {
         </section>
       ) : (
         <>
-      {!journalCollapsed ? (
+      {showJournalFocusMode ? (
         <>
         <section
           className={cn(
@@ -562,60 +562,7 @@ export default function JournalPage() {
           </Button>
         </section>
         </>
-      ) : (
-        <section className="mt-1 overflow-hidden rounded-[24px] border border-white/25 bg-gradient-to-b from-white/70 to-white/35 p-4 shadow-[0_12px_28px_-20px_rgba(0,0,0,0.45)] backdrop-blur-md dark:from-white/[0.08] dark:to-white/[0.03]">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                Daily check-in
-              </p>
-              <div className="mt-2">
-                <div className="flex items-center justify-between text-[12px]">
-                  <span className="font-medium text-muted-foreground">Mood</span>
-                  <span className="font-semibold text-foreground">
-                    {todayJournalEntry?.mood ?? "-"} / 10
-                  </span>
-                </div>
-                <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-muted/80">
-                  <div
-                    className="h-full rounded-full bg-gradient-to-r from-rose-400 via-amber-400 to-emerald-500 transition-all duration-500"
-                    style={{
-                      width: `${Math.max(
-                        0,
-                        Math.min(100, ((todayJournalEntry?.mood ?? 0) / 10) * 100),
-                      )}%`,
-                    }}
-                  />
-                </div>
-              </div>
-              <p className="mt-3 text-[13px] leading-snug">
-                {todayJournalEntry?.reflection || "No sentence saved."}
-              </p>
-              {(todayJournalEntry?.causeBuckets ?? []).length > 0 ? (
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {(todayJournalEntry?.causeBuckets ?? []).map((bucket) => (
-                    <span
-                      key={bucket}
-                      className="rounded-full border border-border/60 bg-background/75 px-2.5 py-1 text-[11px] text-muted-foreground"
-                    >
-                      {bucket}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="shrink-0 rounded-full"
-              onClick={startJournalEditing}
-            >
-              Edit
-            </Button>
-          </div>
-        </section>
-      )}
+      ) : null}
 
       {!showJournalFocusMode && !formCollapsed ? (
         <section className="mt-4 rounded-2xl border border-border/60 bg-card/80 p-4">

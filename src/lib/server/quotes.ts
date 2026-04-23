@@ -45,25 +45,23 @@ async function loadPool(): Promise<DailyQuote[]> {
   return quotes;
 }
 
-/** Sequential non-repeating pick per user from the active quotes pool. */
-export async function getDailyQuoteForClerkId(
-  clerkId: string,
-): Promise<DailyQuote | null> {
+async function resolveUserIdForClerkId(clerkId: string): Promise<string | null> {
   const supabase = getServiceSupabase();
   if (!supabase) return null;
-  const pool = await loadPool();
-  if (!pool.length) return null;
   const { data: userRow } = await supabase
     .from("users")
     .select("id")
     .eq("clerk_id", clerkId)
     .maybeSingle();
-  const userId = userRow?.id as string | undefined;
-  if (!userId) {
-    const seed = stableHash(`${clerkId}::fallback`);
-    return pool[seed % pool.length] ?? null;
-  }
+  return (userRow?.id as string | undefined) ?? null;
+}
 
+async function readNextQuoteForUserId(
+  userId: string,
+  pool: DailyQuote[],
+): Promise<DailyQuote | null> {
+  const supabase = getServiceSupabase();
+  if (!supabase || !pool.length) return null;
   const { data: rotationRow } = await supabase
     .from("user_quote_rotation")
     .select("last_quote_id")
@@ -75,17 +73,50 @@ export async function getDailyQuoteForClerkId(
     ? pool.findIndex((quote) => quote.id === lastQuoteId)
     : -1;
   const nextIndex = (lastIndex + 1 + pool.length) % pool.length;
-  const nextQuote = pool[nextIndex] ?? pool[0] ?? null;
-  if (!nextQuote) return null;
+  return pool[nextIndex] ?? pool[0] ?? null;
+}
 
+async function commitQuoteForUserId(userId: string, quoteId: string): Promise<void> {
+  const supabase = getServiceSupabase();
+  if (!supabase) return;
   await supabase.from("user_quote_rotation").upsert(
     {
       user_id: userId,
-      last_quote_id: nextQuote.id,
+      last_quote_id: quoteId,
       updated_at: new Date().toISOString(),
     },
     { onConflict: "user_id" },
   );
+}
+
+/** Preview next quote without advancing per-user rotation. */
+export async function peekDailyQuoteForClerkId(
+  clerkId: string,
+): Promise<DailyQuote | null> {
+  const pool = await loadPool();
+  if (!pool.length) return null;
+  const userId = await resolveUserIdForClerkId(clerkId);
+  if (!userId) {
+    const seed = stableHash(`${clerkId}::fallback`);
+    return pool[seed % pool.length] ?? null;
+  }
+  return readNextQuoteForUserId(userId, pool);
+}
+
+/** Sequential non-repeating pick per user from the active quotes pool. */
+export async function getDailyQuoteForClerkId(
+  clerkId: string,
+): Promise<DailyQuote | null> {
+  const pool = await loadPool();
+  if (!pool.length) return null;
+  const userId = await resolveUserIdForClerkId(clerkId);
+  if (!userId) {
+    const seed = stableHash(`${clerkId}::fallback`);
+    return pool[seed % pool.length] ?? null;
+  }
+  const nextQuote = await readNextQuoteForUserId(userId, pool);
+  if (!nextQuote) return null;
+  await commitQuoteForUserId(userId, nextQuote.id);
 
   return nextQuote;
 }

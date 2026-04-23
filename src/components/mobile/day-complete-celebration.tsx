@@ -2,20 +2,23 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { getDailyQuoteAction } from "@/app/actions/quotes";
+import { getDailyQuoteAction, peekDailyQuoteAction } from "@/app/actions/quotes";
 import { Button } from "@/components/ui/button";
 import { useStore } from "@/lib/store";
 import {
   FALLBACK_QUOTES,
   getLocalDeviceSeed,
   pickFallbackQuote,
+  readCachedQuote,
   setCelebrationStorageScope,
+  writeCachedQuote,
   type CachedQuote,
 } from "@/lib/quotes-storage";
 import { useDayCompleteTrigger } from "@/hooks/use-day-complete-trigger";
 import { GiftBox } from "./gift-box";
 
 const AUTO_DISMISS_MS = 10000;
+const REVEAL_QUOTE_GATE_MS = 420;
 
 export function DayCompleteCelebration() {
   const { state } = useStore();
@@ -26,22 +29,27 @@ export function DayCompleteCelebration() {
     setCelebrationStorageScope(meId ?? "anon");
   }, [meId]);
 
-  const { active, date, doneCount, acknowledge } = useDayCompleteTrigger();
+  const { active, date, doneCount, totalHabits, acknowledge } = useDayCompleteTrigger();
 
   const [revealed, setRevealed] = useState(false);
   const [quote, setQuote] = useState<CachedQuote | null>(null);
   const confettiHandleRef = useRef<{ reset: () => void } | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const handleReveal = useCallback(() => {
-    setRevealed(true);
-  }, []);
+  const revealInFlightRef = useRef(false);
+  const consumedDateRef = useRef<string | null>(null);
+  const localSeed = getLocalDeviceSeed();
 
-  const loadQuote = useCallback(
-    async (dateKey: string) => {
+  const prefetchQuote = useCallback(
+    async (dateKey: string): Promise<CachedQuote | null> => {
+      const cached = readCachedQuote(dateKey);
+      if (cached) {
+        setQuote((prev) => prev ?? cached);
+        return cached;
+      }
       try {
-        const r = await getDailyQuoteAction({
+        const r = await peekDailyQuoteAction({
           dateKey,
-          localSeed: getLocalDeviceSeed(),
+          localSeed,
         });
         if (r.ok && r.data) {
           const next: CachedQuote = {
@@ -49,30 +57,98 @@ export function DayCompleteCelebration() {
             text: r.data.text,
             author: r.data.author,
           };
-          setQuote(next);
-          return;
+          writeCachedQuote(dateKey, next);
+          setQuote((prev) => prev ?? next);
+          return next;
         }
       } catch {
-        /* fall through to fallback */
+        // ignore and let reveal path fallback if needed
       }
-      const fallback = pickFallbackQuote(dateKey);
-      setQuote(fallback);
+      return null;
     },
-    [],
+    [localSeed],
   );
+
+  const handleReveal = useCallback(async () => {
+    if (revealInFlightRef.current) return;
+    revealInFlightRef.current = true;
+    try {
+      let display = quote ?? readCachedQuote(date) ?? null;
+      if (!display) {
+        display = await prefetchQuote(date);
+      }
+      const gate = new Promise<void>((resolve) => {
+        window.setTimeout(resolve, REVEAL_QUOTE_GATE_MS);
+      });
+
+      if (consumedDateRef.current !== date) {
+        try {
+          const r = await getDailyQuoteAction({
+            dateKey: date,
+            localSeed,
+          });
+          if (r.ok && r.data) {
+            const consumed: CachedQuote = {
+              id: r.data.id,
+              text: r.data.text,
+              author: r.data.author,
+            };
+            writeCachedQuote(date, consumed);
+            consumedDateRef.current = date;
+            if (!display) {
+              display = consumed;
+              setQuote(consumed);
+            }
+          }
+        } catch {
+          // ignore and continue with cached/fallback
+        }
+      }
+
+      if (!display) {
+        const fallback = pickFallbackQuote(date);
+        display = fallback;
+        setQuote(fallback);
+      }
+      await gate;
+      setQuote(display);
+      setRevealed(true);
+    } finally {
+      revealInFlightRef.current = false;
+    }
+  }, [date, localSeed, prefetchQuote, quote]);
 
   useEffect(() => {
     if (!active) {
       queueMicrotask(() => {
         setRevealed(false);
-        setQuote(null);
+        setQuote(readCachedQuote(date));
       });
       return;
     }
     queueMicrotask(() => {
-      void loadQuote(date);
+      void prefetchQuote(date);
     });
-  }, [active, date, loadQuote]);
+  }, [active, date, prefetchQuote]);
+
+  useEffect(() => {
+    if (!meId || active) return;
+    if (totalHabits <= 0) return;
+    if (doneCount < totalHabits - 1) return;
+    void prefetchQuote(date);
+  }, [active, date, doneCount, totalHabits, meId, prefetchQuote]);
+
+  useEffect(() => {
+    if (!meId || active) return;
+    if (totalHabits <= 0) return;
+    if (doneCount < totalHabits - 1) return;
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      void prefetchQuote(date);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [active, date, doneCount, totalHabits, meId, prefetchQuote]);
 
   useEffect(() => {
     if (!active) return;
@@ -167,7 +243,6 @@ export function DayCompleteCelebration() {
   }, [active, acknowledge]);
 
   if (!meId) return null;
-
   const resolvedQuote = quote ?? FALLBACK_QUOTES[0];
 
   return (
@@ -278,14 +353,22 @@ export function DayCompleteCelebration() {
                           aria-hidden
                           className="block h-px w-12 rounded-full bg-duo/55"
                         />
-                        <blockquote className="max-w-[290px] text-pretty text-[16px] font-medium leading-relaxed text-foreground/92">
-                          &ldquo;{resolvedQuote.text}&rdquo;
-                        </blockquote>
-                        {resolvedQuote.author ? (
-                          <figcaption className="text-[10.5px] font-medium uppercase tracking-[0.28em] text-foreground/55">
-                            {resolvedQuote.author}
-                          </figcaption>
-                        ) : null}
+                        {quote ? (
+                          <>
+                            <blockquote className="max-w-[290px] text-pretty text-[16px] font-medium leading-relaxed text-foreground/92">
+                              &ldquo;{resolvedQuote.text}&rdquo;
+                            </blockquote>
+                            {resolvedQuote.author ? (
+                              <figcaption className="text-[10.5px] font-medium uppercase tracking-[0.28em] text-foreground/55">
+                                {resolvedQuote.author}
+                              </figcaption>
+                            ) : null}
+                          </>
+                        ) : (
+                          <blockquote className="max-w-[290px] text-pretty text-[16px] font-medium leading-relaxed text-foreground/92">
+                            &ldquo;{resolvedQuote.text}&rdquo;
+                          </blockquote>
+                        )}
                       </figure>
                       <Button
                         className="mt-3 h-10 rounded-full bg-duo px-7 text-sm font-semibold text-duo-foreground shadow-[0_10px_26px_-14px_rgba(0,0,0,0.5)] hover:bg-duo/90"
