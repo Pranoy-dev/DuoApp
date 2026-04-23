@@ -5,9 +5,21 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useStore } from "@/lib/store";
 import { MILESTONE_THEMES } from "@/lib/milestones";
 
+const SEEN_MILESTONES_KEY = "duo.milestones.seen.v1";
+
 export function MilestoneOverlay() {
   const { state } = useStore();
-  const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => {
+    if (typeof window === "undefined") return new Set();
+    try {
+      const raw = window.localStorage.getItem(SEEN_MILESTONES_KEY);
+      if (!raw) return new Set();
+      const parsed = JSON.parse(raw) as string[];
+      return new Set(parsed);
+    } catch {
+      return new Set();
+    }
+  });
   const reduceMotion = useReducedMotion();
   const activeMilestone = useMemo(() => {
     const me = state.me;
@@ -32,6 +44,17 @@ export function MilestoneOverlay() {
       };
     });
   }, [active]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        SEEN_MILESTONES_KEY,
+        JSON.stringify([...dismissedIds]),
+      );
+    } catch {
+      // ignore write failures
+    }
+  }, [dismissedIds]);
 
   useEffect(() => {
     if (!activeMilestone) return;

@@ -1,28 +1,50 @@
-import type { Completion, Habit, MilestoneAchievement } from "@/lib/types";
+import { addDays, toDateKey } from "@/lib/date";
+import type { Completion, MilestoneAchievement } from "@/lib/types";
 import { MILESTONE_TIERS } from "@/lib/milestones";
-import { streakFor } from "@/lib/streak";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-export async function syncMilestonesForCompletion(
-  supabase: SupabaseClient,
-  habit: Habit,
-  habitId: string,
-  userId: string,
+function sharedCoupleStreakDays(
   completions: Completion[],
-  graceEnabled: boolean,
+  memberIds: string[],
+  asOfDate: string,
+): number {
+  if (memberIds.length < 2) return 0;
+  const memberSet = new Set(memberIds);
+  const doneByDate = new Map<string, Set<string>>();
+  for (const c of completions) {
+    if (!memberSet.has(c.userId)) continue;
+    const bucket = doneByDate.get(c.date) ?? new Set<string>();
+    bucket.add(c.userId);
+    doneByDate.set(c.date, bucket);
+  }
+
+  let streak = 0;
+  let cursor = asOfDate;
+  while (true) {
+    const done = doneByDate.get(cursor);
+    const allMembersDone = memberIds.every((id) => done?.has(id));
+    if (!allMembersDone) break;
+    streak += 1;
+    cursor = toDateKey(addDays(new Date(`${cursor}T00:00:00`), -1));
+  }
+  return streak;
+}
+
+export async function syncGlobalMilestonesForFirstDailyCompletion(
+  supabase: SupabaseClient,
+  userId: string,
+  memberIds: string[],
+  asOfDate: string,
+  completions: Completion[],
   existingMilestones: MilestoneAchievement[],
 ): Promise<void> {
-  const info = streakFor(habit, completions, userId, graceEnabled);
-  const already = new Set(
-    existingMilestones
-      .filter((m) => m.habitId === habitId && m.userId === userId)
-      .map((m) => m.tier),
-  );
+  const streak = sharedCoupleStreakDays(completions, memberIds, asOfDate);
+  const already = new Set(existingMilestones.filter((m) => m.userId === userId).map((m) => m.tier));
   for (const tier of MILESTONE_TIERS) {
-    if (info.current >= tier && !already.has(tier)) {
+    if (streak >= tier && !already.has(tier)) {
       const { error } = await supabase.from("milestones").insert({
-        habit_id: habitId,
         user_id: userId,
+        habit_id: null,
         tier,
       });
       if (error && !error.message.includes("duplicate")) {

@@ -36,13 +36,14 @@ import type {
   Couple,
   DayExcitementEntry,
   Habit,
+  JournalEntry,
+  JournalUserBucket,
   MilestoneAchievement,
   Person,
 } from "./types";
 import { habitIntent } from "./types";
 import { todayKey, toDateKey, diffDays, addDays } from "./date";
 import { replenishPersonRevives } from "./revives";
-import { streakFor } from "./streak";
 import { MILESTONE_TIERS } from "./milestones";
 
 const LEGACY_STORAGE_KEY = "duo.state.v1";
@@ -57,6 +58,8 @@ const EMPTY: AppState = {
   cheers: [],
   milestones: [],
   dayExcitement: [],
+  journalEntries: [],
+  journalUserBuckets: [],
 };
 
 function uid(prefix = "id"): string {
@@ -157,42 +160,64 @@ function readInitial(storageKey: string): AppState {
       me,
       couple,
       dayExcitement: parsed.dayExcitement ?? [],
+      journalEntries: parsed.journalEntries ?? [],
+      journalUserBuckets: parsed.journalUserBuckets ?? [],
     };
   } catch {
     return EMPTY;
   }
 }
 
-function graceForUser(s: AppState, userId: string): boolean {
-  if (s.me?.id === userId) return s.me.graceEnabled;
-  const m = s.couple?.members.find((p) => p.id === userId);
-  return m?.graceEnabled ?? true;
+function firstCompletionForUserOnDate(
+  completions: Completion[],
+  userId: string,
+  date: string,
+): boolean {
+  return !completions.some((c) => c.userId === userId && c.date === date);
 }
 
-function milestonesAfterNewCompletion(
+function sharedCoupleStreakDays(
+  completions: Completion[],
+  memberIds: string[],
+  asOfDate: string,
+): number {
+  if (memberIds.length < 2) return 0;
+  const memberSet = new Set(memberIds);
+  const doneByDate = new Map<string, Set<string>>();
+  for (const c of completions) {
+    if (!memberSet.has(c.userId)) continue;
+    const bucket = doneByDate.get(c.date) ?? new Set<string>();
+    bucket.add(c.userId);
+    doneByDate.set(c.date, bucket);
+  }
+
+  let streak = 0;
+  let cursor = asOfDate;
+  while (true) {
+    const done = doneByDate.get(cursor);
+    const everyoneDone = memberIds.every((id) => done?.has(id));
+    if (!everyoneDone) break;
+    streak += 1;
+    cursor = toDateKey(addDays(new Date(`${cursor}T00:00:00`), -1));
+  }
+  return streak;
+}
+
+function globalMilestonesAfterFirstDailyCompletion(
   s: AppState,
-  habit: Habit,
-  habitId: string,
   userId: string,
+  date: string,
   completions: Completion[],
 ): MilestoneAchievement[] {
-  const info = streakFor(
-    habit,
-    completions,
-    userId,
-    graceForUser(s, userId),
-  );
-  const already = new Set(
-    s.milestones
-      .filter((m) => m.habitId === habitId && m.userId === userId)
-      .map((m) => m.tier),
-  );
+  if (!s.couple || s.couple.members.length < 2) return [];
+  const memberIds = s.couple.members.map((m) => m.id);
+  const streak = sharedCoupleStreakDays(completions, memberIds, date);
+  const already = new Set(s.milestones.filter((m) => m.userId === userId).map((m) => m.tier));
   const unlocked: MilestoneAchievement[] = [];
   for (const tier of MILESTONE_TIERS) {
-    if (info.current >= tier && !already.has(tier)) {
+    if (streak >= tier && !already.has(tier)) {
       unlocked.push({
         id: uid("m"),
-        habitId,
         userId,
         tier,
         achievedAt: new Date().toISOString(),
@@ -245,6 +270,25 @@ function applyCompletionState(
   }
 
   return { ...s, completions };
+}
+
+function applyCompletionWithGlobalMilestones(
+  s: AppState,
+  args: { habitId: string; userId: string; date: string; done: boolean; completionId?: string },
+): AppState {
+  const before = completionDoneInState(s, args.habitId, args.userId, args.date);
+  const wasFirstForDay =
+    args.done && !before && firstCompletionForUserOnDate(s.completions, args.userId, args.date);
+  const next = applyCompletionState(s, args);
+  if (!wasFirstForDay) return next;
+  const unlocked = globalMilestonesAfterFirstDailyCompletion(
+    s,
+    args.userId,
+    args.date,
+    next.completions,
+  );
+  if (!unlocked.length) return next;
+  return { ...next, milestones: [...next.milestones, ...unlocked] };
 }
 
 type PendingCompletionMutation = {
@@ -332,6 +376,14 @@ type StoreValue = {
   markCheersRead: () => Promise<void>;
   setGrace: (enabled: boolean) => Promise<void>;
   saveDayExcitement: (input: { stars: number; note: string }) => Promise<void>;
+  saveJournalEntry: (input: {
+    mood: number;
+    promptId: string;
+    promptText: string;
+    reflection: string;
+    causeBuckets: string[];
+  }) => Promise<void>;
+  createJournalUserBucket: (label: string) => Promise<void>;
   resetAll: () => Promise<void>;
   /** Replace store from server snapshot (deferred sync / bootstrap). */
   applyRemoteHydration: (data: AppState) => void;
@@ -507,7 +559,41 @@ function StoreProviderCore({
           }
         : null,
       dayExcitement: data.dayExcitement ?? [],
+      journalEntries: data.journalEntries ?? [],
+      journalUserBuckets: data.journalUserBuckets ?? [],
     });
+    // Preserve newer local journal edits when cloud responses lag behind.
+    const localState = stateRef.current;
+    if (localState.journalEntries.length > 0) {
+      const mergedByDay = new Map<string, JournalEntry>();
+      for (const entry of nextState.journalEntries) {
+        mergedByDay.set(`${entry.userId}::${entry.date}`, entry);
+      }
+      for (const entry of localState.journalEntries) {
+        const key = `${entry.userId}::${entry.date}`;
+        const existing = mergedByDay.get(key);
+        if (!existing || entry.savedAt > existing.savedAt) {
+          mergedByDay.set(key, entry);
+        }
+      }
+      nextState = { ...nextState, journalEntries: [...mergedByDay.values()] };
+    }
+    if (localState.journalUserBuckets.length > 0) {
+      const mergedBuckets = new Map<string, JournalUserBucket>();
+      for (const bucket of nextState.journalUserBuckets) {
+        mergedBuckets.set(`${bucket.userId}::${bucket.normalizedLabel}`, bucket);
+      }
+      for (const bucket of localState.journalUserBuckets) {
+        const key = `${bucket.userId}::${bucket.normalizedLabel}`;
+        const existing = mergedBuckets.get(key);
+        const existingRecency = existing?.lastSelectedAt ?? "";
+        const localRecency = bucket.lastSelectedAt ?? "";
+        if (!existing || localRecency > existingRecency) {
+          mergedBuckets.set(key, bucket);
+        }
+      }
+      nextState = { ...nextState, journalUserBuckets: [...mergedBuckets.values()] };
+    }
     for (const p of pendingByOpRef.current.values()) {
       nextState = applyCompletionState(nextState, {
         habitId: p.habitId,
@@ -1038,27 +1124,14 @@ function StoreProviderCore({
         const nextDesired = !tailDone;
         q.push(nextDesired);
         completionTargetQueueRef.current.set(identity, q);
-        const previousDone = tailDone;
         setState((s) => {
-          const next = applyCompletionState(s, {
+          const next = applyCompletionWithGlobalMilestones(s, {
             habitId,
             userId,
             date,
             done: nextDesired,
           });
-          const habit = s.habits.find((h) => h.id === habitId);
-          let milestones = next.milestones;
-          if (habit && nextDesired && !previousDone) {
-            const unlocked = milestonesAfterNewCompletion(
-              next,
-              habit,
-              habitId,
-              userId,
-              next.completions,
-            );
-            if (unlocked.length) milestones = [...milestones, ...unlocked];
-          }
-          return { ...next, milestones };
+          return next;
         });
         return;
       }
@@ -1089,25 +1162,13 @@ function StoreProviderCore({
       latestOpByIdentityRef.current.set(identity, operationId);
 
       setState((s) => {
-        const next = applyCompletionState(s, {
+        const next = applyCompletionWithGlobalMilestones(s, {
           habitId,
           userId,
           date,
           done: nextDone,
         });
-        const habit = s.habits.find((h) => h.id === habitId);
-        let milestones = next.milestones;
-        if (habit && nextDone && !previousDone) {
-          const unlocked = milestonesAfterNewCompletion(
-            next,
-            habit,
-            habitId,
-            userId,
-            next.completions,
-          );
-          if (unlocked.length) milestones = [...milestones, ...unlocked];
-        }
-        return { ...next, milestones };
+        return next;
       });
 
       if (duoRuntime.duoDeferredSnapshotSync && !duoCloudActive) {
@@ -1202,25 +1263,13 @@ function StoreProviderCore({
           latestOpByIdentityRef.current.set(identity, chainOperationId);
 
           setState((s) => {
-            const next = applyCompletionState(s, {
+            const next = applyCompletionWithGlobalMilestones(s, {
               habitId,
               userId,
               date,
               done: chainNextDone,
             });
-            const habit = s.habits.find((h) => h.id === habitId);
-            let milestones = next.milestones;
-            if (habit && chainNextDone && !chainPreviousDone) {
-              const unlocked = milestonesAfterNewCompletion(
-                next,
-                habit,
-                habitId,
-                userId,
-                next.completions,
-              );
-              if (unlocked.length) milestones = [...milestones, ...unlocked];
-            }
-            return { ...next, milestones };
+            return next;
           });
 
           let chainR: Awaited<ReturnType<typeof duoActions.toggleCompletionAction>>;
@@ -1352,21 +1401,11 @@ function StoreProviderCore({
             date: args.date,
           },
         ];
-        let milestones = s.milestones;
-        const unlocked = milestonesAfterNewCompletion(
-          s,
-          habit,
-          args.habitId,
-          args.partnerId,
-          completions,
-        );
-        if (unlocked.length) milestones = [...milestones, ...unlocked];
 
         ok = true;
         return {
           ...s,
           completions,
-          milestones,
           me: {
             ...me,
             streakRevivesRemaining: me.streakRevivesRemaining - 1,
@@ -1488,6 +1527,123 @@ function StoreProviderCore({
     [applyRemoteState, duoCloudActive],
   );
 
+  const saveJournalEntry = useCallback(
+    async (input: {
+      mood: number;
+      promptId: string;
+      promptText: string;
+      reflection: string;
+      causeBuckets: string[];
+    }) => {
+      const applyLocalJournalEntry = () => {
+        setState((s) => {
+          if (!s.me) return s;
+          const date = todayKey();
+          const mood = Math.min(10, Math.max(1, Math.round(input.mood)));
+          const reflection = input.reflection.trim().slice(0, 600);
+          const savedAt = new Date().toISOString();
+          const dedupedBuckets = Array.from(
+            new Set(input.causeBuckets.map((bucket) => bucket.trim()).filter(Boolean)),
+          ).slice(0, 4);
+          const row: JournalEntry = {
+            id: uid("jrnl"),
+            userId: s.me.id,
+            date,
+            mood,
+            promptId: input.promptId.trim().slice(0, 80),
+            promptText: input.promptText.trim().slice(0, 280),
+            reflection,
+            causeBuckets: dedupedBuckets,
+            savedAt,
+          };
+          const list = s.journalEntries ?? [];
+          const rest = list.filter((e) => !(e.userId === s.me!.id && e.date === date));
+          const recency = new Date().toISOString();
+          const nextBuckets = [...(s.journalUserBuckets ?? [])];
+          for (const label of dedupedBuckets) {
+            const normalized = label.trim().replace(/\s+/g, " ").toLowerCase();
+            const idx = nextBuckets.findIndex((bucket) => bucket.normalizedLabel === normalized);
+            if (idx >= 0) {
+              nextBuckets[idx] = { ...nextBuckets[idx]!, label, lastSelectedAt: recency };
+            } else {
+              const created: JournalUserBucket = {
+                id: uid("jbucket"),
+                userId: s.me.id,
+                label,
+                normalizedLabel: normalized,
+                createdAt: recency,
+                lastSelectedAt: recency,
+              };
+              nextBuckets.push(created);
+            }
+          }
+          return { ...s, journalEntries: [...rest, row], journalUserBuckets: nextBuckets };
+        });
+      };
+
+      if (duoCloudActive) {
+        try {
+          const r = await duoActions.saveJournalEntryAction(input);
+          if (!r.ok) {
+            // Keep Journal usable even if backend migration isn't applied yet.
+            applyLocalJournalEntry();
+            return;
+          }
+          applyRemoteState(r.data);
+          return;
+        } catch {
+          // Network/server action failure should still not block journal UX.
+          applyLocalJournalEntry();
+          return;
+        }
+      }
+
+      applyLocalJournalEntry();
+    },
+    [applyRemoteState, duoCloudActive],
+  );
+
+  const createJournalUserBucket = useCallback(
+    async (label: string) => {
+      if (duoCloudActive) {
+        const r = await duoActions.createJournalUserBucketAction({ label });
+        if (!r.ok) throw new Error(r.message);
+        applyRemoteState(r.data);
+        return;
+      }
+      setState((s) => {
+        if (!s.me) return s;
+        const clean = label.trim().replace(/\s+/g, " ").slice(0, 40);
+        if (!clean) return s;
+        const normalized = clean.toLowerCase();
+        const existing = (s.journalUserBuckets ?? []).find(
+          (bucket) => bucket.normalizedLabel === normalized,
+        );
+        const nowIso = new Date().toISOString();
+        if (existing) {
+          return {
+            ...s,
+            journalUserBuckets: (s.journalUserBuckets ?? []).map((bucket) =>
+              bucket.normalizedLabel === normalized
+                ? { ...bucket, label: clean, lastSelectedAt: bucket.lastSelectedAt ?? nowIso }
+                : bucket,
+            ),
+          };
+        }
+        const created: JournalUserBucket = {
+          id: uid("jbucket"),
+          userId: s.me.id,
+          label: clean,
+          normalizedLabel: normalized,
+          createdAt: nowIso,
+          lastSelectedAt: null,
+        };
+        return { ...s, journalUserBuckets: [...(s.journalUserBuckets ?? []), created] };
+      });
+    },
+    [applyRemoteState, duoCloudActive],
+  );
+
   const resetAll = useCallback(async () => {
     if (serverCoupleActionsEnabled) {
       const r = await duoActions.resetDuoAction();
@@ -1521,6 +1677,8 @@ function StoreProviderCore({
       markCheersRead,
       setGrace,
       saveDayExcitement,
+      saveJournalEntry,
+      createJournalUserBucket,
       resetAll,
       applyRemoteHydration: applyRemoteState,
       refreshBootstrapFromServer,
@@ -1548,6 +1706,8 @@ function StoreProviderCore({
       markCheersRead,
       setGrace,
       saveDayExcitement,
+      saveJournalEntry,
+      createJournalUserBucket,
       resetAll,
       applyRemoteState,
       refreshBootstrapFromServer,

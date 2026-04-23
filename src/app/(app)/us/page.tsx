@@ -176,7 +176,7 @@ export default function UsPage() {
                       {theme?.label ?? `${m.tier} days`}
                     </p>
                     <p className="truncate text-[11px] text-muted-foreground">
-                      {who?.name ?? "Someone"} · {habit?.name ?? "a habit"}
+                      {who?.name ?? "Someone"} · {habit?.name ?? "Together"}
                     </p>
                   </div>
                   <p className="text-[11px] text-muted-foreground">

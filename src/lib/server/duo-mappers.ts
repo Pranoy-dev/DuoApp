@@ -4,6 +4,9 @@ import type {
   Couple,
   DayExcitementEntry,
   Habit,
+  JournalCauseBucket,
+  JournalEntry,
+  JournalUserBucket,
   MilestoneAchievement,
   Person,
 } from "@/lib/types";
@@ -130,14 +133,14 @@ export function rowToCheer(row: {
 
 export function rowToMilestone(row: {
   id: string;
-  habit_id: string;
+  habit_id: string | null;
   user_id: string;
   tier: number;
   achieved_at: string;
 }): MilestoneAchievement {
   return {
     id: row.id,
-    habitId: row.habit_id,
+    habitId: row.habit_id ?? undefined,
     userId: row.user_id,
     tier: row.tier,
     achievedAt: row.achieved_at,
@@ -159,5 +162,47 @@ export function rowToDayExcitement(row: {
     stars: row.stars,
     note: row.note ?? "",
     savedAt: row.saved_at,
+  };
+}
+
+export function rowToJournalEntry(row: {
+  id: string;
+  user_id: string;
+  date: string;
+  mood: number;
+  prompt_id: string;
+  prompt_text: string;
+  reflection: string;
+  cause_buckets: string[] | null;
+  saved_at: string;
+}): JournalEntry {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    date: row.date,
+    mood: row.mood,
+    promptId: row.prompt_id,
+    promptText: row.prompt_text,
+    reflection: row.reflection ?? "",
+    causeBuckets: (row.cause_buckets ?? []) as JournalCauseBucket[],
+    savedAt: row.saved_at,
+  };
+}
+
+export function rowToJournalUserBucket(row: {
+  id: string;
+  user_id: string;
+  label: string;
+  normalized_label: string;
+  created_at: string;
+  last_selected_at: string | null;
+}): JournalUserBucket {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    label: row.label,
+    normalizedLabel: row.normalized_label,
+    createdAt: row.created_at,
+    lastSelectedAt: row.last_selected_at,
   };
 }

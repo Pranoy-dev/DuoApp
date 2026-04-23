@@ -47,7 +47,7 @@ export type Cheer = {
 
 export type MilestoneAchievement = {
   id: string;
-  habitId: string;
+  habitId?: string;
   userId: string;
   tier: number;
   achievedAt: string;
@@ -61,6 +61,37 @@ export type DayExcitementEntry = {
   stars: number;
   note: string;
   savedAt: string;
+};
+
+export type JournalCauseBucket =
+  | "Sleep"
+  | "Work"
+  | "Body"
+  | "Relationship"
+  | "Social"
+  | "Finance"
+  | "Purpose"
+  | "Random";
+
+export type JournalEntry = {
+  id: string;
+  userId: string;
+  date: string;
+  mood: number;
+  promptId: string;
+  promptText: string;
+  reflection: string;
+  causeBuckets: string[];
+  savedAt: string;
+};
+
+export type JournalUserBucket = {
+  id: string;
+  userId: string;
+  label: string;
+  normalizedLabel: string;
+  createdAt: string;
+  lastSelectedAt: string | null;
 };
 
 export type Person = {
@@ -89,4 +120,6 @@ export type AppState = {
   cheers: Cheer[];
   milestones: MilestoneAchievement[];
   dayExcitement: DayExcitementEntry[];
+  journalEntries: JournalEntry[];
+  journalUserBuckets: JournalUserBucket[];
 };

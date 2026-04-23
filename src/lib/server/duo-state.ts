@@ -6,6 +6,8 @@ import {
   rowToCompletion,
   rowToDayExcitement,
   rowToHabit,
+  rowToJournalEntry,
+  rowToJournalUserBucket,
   rowToMilestone,
   rowToPerson,
 } from "@/lib/server/duo-mappers";
@@ -16,6 +18,8 @@ const EMPTY_SLICE = {
   cheers: [] as AppState["cheers"],
   milestones: [] as AppState["milestones"],
   dayExcitement: [] as AppState["dayExcitement"],
+  journalEntries: [] as AppState["journalEntries"],
+  journalUserBuckets: [] as AppState["journalUserBuckets"],
 };
 
 function visibleHabitsForUser(habits: Habit[], currentUserUuid: string): Habit[] {
@@ -148,16 +152,13 @@ export async function getAppStateForClerkId(
   );
 
   let milestones: AppState["milestones"] = [];
-  if (habitIds.length > 0) {
-    const { data: milestoneRows } = await supabase
-      .from("milestones")
-      .select("*")
-      .in("user_id", memberIds)
-      .in("habit_id", habitIds);
-    milestones = (milestoneRows ?? []).map((r) =>
-      rowToMilestone(r as Parameters<typeof rowToMilestone>[0]),
-    );
-  }
+  const { data: milestoneRows } = await supabase
+    .from("milestones")
+    .select("*")
+    .in("user_id", memberIds);
+  milestones = (milestoneRows ?? []).map((r) =>
+    rowToMilestone(r as Parameters<typeof rowToMilestone>[0]),
+  );
 
   const { data: excRows } = await supabase
     .from("day_excitement")
@@ -168,6 +169,25 @@ export async function getAppStateForClerkId(
     rowToDayExcitement(r as Parameters<typeof rowToDayExcitement>[0]),
   );
 
+  const { data: journalRows } = await supabase
+    .from("journal_entries")
+    .select("*")
+    .in("user_id", memberIds);
+
+  const journalEntries = (journalRows ?? []).map((r) =>
+    rowToJournalEntry(r as Parameters<typeof rowToJournalEntry>[0]),
+  );
+
+  const { data: bucketRows } = await supabase
+    .from("journal_user_buckets")
+    .select("*")
+    .eq("user_id", me.id)
+    .order("last_selected_at", { ascending: false, nullsFirst: false });
+
+  const journalUserBuckets = (bucketRows ?? []).map((r) =>
+    rowToJournalUserBucket(r as Parameters<typeof rowToJournalUserBucket>[0]),
+  );
+
   return {
     me,
     couple,
@@ -176,6 +196,8 @@ export async function getAppStateForClerkId(
     cheers,
     milestones,
     dayExcitement,
+    journalEntries,
+    journalUserBuckets,
   };
 }
 
@@ -225,13 +247,13 @@ async function getStateCursor(args: {
       .limit(2000);
     for (const row of completionRows ?? []) collect(row.updated_at as string | undefined);
 
-    const { data: milestoneRows } = await supabase
-      .from("milestones")
-      .select("achieved_at")
-      .in("habit_id", args.habitIds)
-      .in("user_id", args.memberIds);
-    for (const row of milestoneRows ?? []) collect(row.achieved_at as string | undefined);
   }
+
+  const { data: milestoneRows } = await supabase
+    .from("milestones")
+    .select("achieved_at")
+    .in("user_id", args.memberIds);
+  for (const row of milestoneRows ?? []) collect(row.achieved_at as string | undefined);
 
   const cheerOr = args.memberIds
     .flatMap((id) => [`from_user.eq.${id}`, `to_user.eq.${id}`])
@@ -256,6 +278,25 @@ async function getStateCursor(args: {
     .order("saved_at", { ascending: false })
     .limit(500);
   for (const row of excitementRows ?? []) collect(row.saved_at as string | undefined);
+
+  const { data: journalRows } = await supabase
+    .from("journal_entries")
+    .select("saved_at")
+    .in("user_id", args.memberIds)
+    .order("saved_at", { ascending: false })
+    .limit(500);
+  for (const row of journalRows ?? []) collect(row.saved_at as string | undefined);
+
+  const { data: bucketRows } = await supabase
+    .from("journal_user_buckets")
+    .select("created_at,last_selected_at")
+    .in("user_id", args.memberIds)
+    .order("last_selected_at", { ascending: false })
+    .limit(500);
+  for (const row of bucketRows ?? []) {
+    collect(row.created_at as string | undefined);
+    collect(row.last_selected_at as string | undefined);
+  }
 
   return stamps.length ? stamps.sort().at(-1)! : new Date(0).toISOString();
 }

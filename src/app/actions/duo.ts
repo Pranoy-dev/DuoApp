@@ -14,14 +14,13 @@ import {
 } from "@/lib/server/duo-auth";
 import { getServiceSupabase } from "@/lib/server/supabase-admin";
 import { getAppStateForClerkId, getDeltaAppStateForClerkId } from "@/lib/server/duo-state";
+import { normalizeBucketLabel } from "@/lib/journal";
 import { generateInviteCode } from "@/lib/server/invite-code";
 import {
   habitToInsert,
-  rowToCompletion,
   rowToHabit,
-  rowToMilestone,
 } from "@/lib/server/duo-mappers";
-import { syncMilestonesForCompletion } from "@/lib/server/duo-milestone-sync";
+import { syncGlobalMilestonesForFirstDailyCompletion } from "@/lib/server/duo-milestone-sync";
 import { addDays, diffDays, todayKey, toDateKey } from "@/lib/date";
 
 export type DuoActionResult<T = AppState> =
@@ -488,6 +487,7 @@ export async function toggleCompletionAction(input: {
       input.action ?? (currentlyDone ? "undone" : "done");
     const shouldBeDone = desiredAction === "done";
     const applied = currentlyDone !== shouldBeDone;
+    let hadAnyCompletionToday = false;
     const serverUpdatedAt = new Date().toISOString();
     let serverVersion = Number(existing?.version ?? 0);
 
@@ -506,6 +506,33 @@ export async function toggleCompletionAction(input: {
           },
         },
       };
+    }
+
+    if (shouldBeDone) {
+      const todayQuery = supabase
+        .from("habit_completions")
+        .select("id")
+        .eq("user_id", input.userId)
+        .eq("date", date)
+        .limit(1);
+      const { data: todayRowsModern, error: todayModernErr } = legacyCompletionSchema
+        ? await todayQuery
+        : await todayQuery.is("deleted_at", null);
+      if (todayModernErr && !missingColumn(todayModernErr, "deleted_at")) {
+        return { ok: false, code: "db", message: todayModernErr.message };
+      }
+      if (todayModernErr && missingColumn(todayModernErr, "deleted_at")) {
+        const { data: todayRowsLegacy, error: todayLegacyErr } = await supabase
+          .from("habit_completions")
+          .select("id")
+          .eq("user_id", input.userId)
+          .eq("date", date)
+          .limit(1);
+        if (todayLegacyErr) return { ok: false, code: "db", message: todayLegacyErr.message };
+        hadAnyCompletionToday = (todayRowsLegacy ?? []).length > 0;
+      } else {
+        hadAnyCompletionToday = (todayRowsModern ?? []).length > 0;
+      }
     }
 
     if (shouldBeDone) {
@@ -550,46 +577,6 @@ export async function toggleCompletionAction(input: {
         if (insErr) return { ok: false, code: "db", message: insErr.message };
       }
 
-      const { data: userRow } = await supabase
-        .from("users")
-        .select("grace_enabled")
-        .eq("id", ctx.userUuid)
-        .single();
-      const grace = (userRow?.grace_enabled as boolean) ?? true;
-
-      const compQuery = supabase
-        .from("habit_completions")
-        .select("*")
-        .eq("habit_id", input.habitId)
-        .eq("user_id", input.userId);
-      const { data: compRows, error: compErr } = legacyCompletionSchema
-        ? await compQuery
-        : await compQuery.is("deleted_at", null);
-      if (compErr) return { ok: false, code: "db", message: compErr.message };
-
-      const completions = (compRows ?? []).map((r) =>
-        rowToCompletion(r as Parameters<typeof rowToCompletion>[0]),
-      );
-
-      const { data: msRows } = await supabase
-        .from("milestones")
-        .select("*")
-        .eq("habit_id", input.habitId)
-        .eq("user_id", input.userId);
-
-      const existingMs = (msRows ?? []).map((r) =>
-        rowToMilestone(r as Parameters<typeof rowToMilestone>[0]),
-      );
-
-      await syncMilestonesForCompletion(
-        supabase,
-        habit,
-        input.habitId,
-        input.userId,
-        completions,
-        grace,
-        existingMs,
-      );
     } else if (existing?.id) {
       serverVersion += 1;
       const { error: delErr } = legacyCompletionSchema
@@ -629,7 +616,23 @@ export async function toggleCompletionAction(input: {
       }
     }
 
-    const state = await getAppStateForClerkId(ctx.clerkId);
+    let state = await getAppStateForClerkId(ctx.clerkId);
+    if (
+      shouldBeDone &&
+      !hadAnyCompletionToday &&
+      state?.couple &&
+      state.couple.members.length >= 2
+    ) {
+      await syncGlobalMilestonesForFirstDailyCompletion(
+        supabase,
+        input.userId,
+        state.couple.members.map((m) => m.id),
+        date,
+        state.completions,
+        state.milestones,
+      );
+      state = await getAppStateForClerkId(ctx.clerkId);
+    }
     return {
       ok: true,
       data: {
@@ -720,39 +723,6 @@ export async function revivePartnerMissAction(input: {
     });
     if (insErr) return { ok: false, code: "db", message: insErr.message };
 
-    const { data: partnerRow } = await supabase
-      .from("users")
-      .select("grace_enabled")
-      .eq("id", input.partnerId)
-      .single();
-    const pGrace = (partnerRow?.grace_enabled as boolean) ?? true;
-
-    const { data: compRows } = await supabase
-      .from("habit_completions")
-      .select("*")
-      .eq("habit_id", input.habitId)
-      .eq("user_id", input.partnerId);
-    const completions = (compRows ?? []).map((r) =>
-      rowToCompletion(r as Parameters<typeof rowToCompletion>[0]),
-    );
-    const { data: msRows } = await supabase
-      .from("milestones")
-      .select("*")
-      .eq("habit_id", input.habitId)
-      .eq("user_id", input.partnerId);
-    const existingMs = (msRows ?? []).map((r) =>
-      rowToMilestone(r as Parameters<typeof rowToMilestone>[0]),
-    );
-    await syncMilestonesForCompletion(
-      supabase,
-      habit,
-      input.habitId,
-      input.partnerId,
-      completions,
-      pGrace,
-      existingMs,
-    );
-
     const state = await getAppStateForClerkId(ctx.clerkId);
     return { ok: true, data: state! };
   } catch (e) {
@@ -824,6 +794,92 @@ export async function saveDayExcitementAction(input: {
         saved_at: savedAt,
       },
       { onConflict: "user_id,date" },
+    );
+    if (error) return { ok: false, code: "db", message: error.message };
+    const state = await getAppStateForClerkId(ctx.clerkId);
+    return { ok: true, data: state! };
+  } catch (e) {
+    return err(e);
+  }
+}
+
+export async function saveJournalEntryAction(input: {
+  mood: number;
+  promptId: string;
+  promptText: string;
+  reflection: string;
+  causeBuckets: string[];
+}): Promise<DuoActionResult<AppState>> {
+  try {
+    const ctx = await requireDuoContext();
+    const supabase = getServiceSupabase()!;
+    const date = todayKey();
+    const mood = Math.min(10, Math.max(1, Math.round(input.mood)));
+    const promptId = input.promptId.trim().slice(0, 80);
+    const promptText = input.promptText.trim().slice(0, 280);
+    const reflection = input.reflection.trim().slice(0, 600);
+    const causeBuckets = Array.from(
+      new Set(
+        (input.causeBuckets ?? [])
+          .map((bucket) => bucket.trim())
+          .filter((bucket) => bucket.length > 0),
+      ),
+    ).slice(0, 4);
+    const savedAt = new Date().toISOString();
+    const { error } = await supabase.from("journal_entries").upsert(
+      {
+        user_id: ctx.userUuid,
+        date,
+        mood,
+        prompt_id: promptId,
+        prompt_text: promptText,
+        reflection,
+        cause_buckets: causeBuckets,
+        saved_at: savedAt,
+      },
+      { onConflict: "user_id,date" },
+    );
+    if (error) return { ok: false, code: "db", message: error.message };
+
+    for (const label of causeBuckets) {
+      const normalized = normalizeBucketLabel(label).slice(0, 60);
+      const { error: bucketError } = await supabase.from("journal_user_buckets").upsert(
+        {
+          user_id: ctx.userUuid,
+          label: label.slice(0, 40),
+          normalized_label: normalized,
+          last_selected_at: savedAt,
+        },
+        { onConflict: "user_id,normalized_label" },
+      );
+      if (bucketError) return { ok: false, code: "db", message: bucketError.message };
+    }
+
+    const state = await getAppStateForClerkId(ctx.clerkId);
+    return { ok: true, data: state! };
+  } catch (e) {
+    return err(e);
+  }
+}
+
+export async function createJournalUserBucketAction(input: {
+  label: string;
+}): Promise<DuoActionResult<AppState>> {
+  try {
+    const ctx = await requireDuoContext();
+    const supabase = getServiceSupabase()!;
+    const label = input.label.trim().replace(/\s+/g, " ").slice(0, 40);
+    if (!label) {
+      return { ok: false, code: "bad_request", message: "Bucket label is required." };
+    }
+    const normalized = normalizeBucketLabel(label).slice(0, 60);
+    const { error } = await supabase.from("journal_user_buckets").upsert(
+      {
+        user_id: ctx.userUuid,
+        label,
+        normalized_label: normalized,
+      },
+      { onConflict: "user_id,normalized_label" },
     );
     if (error) return { ok: false, code: "db", message: error.message };
     const state = await getAppStateForClerkId(ctx.clerkId);

@@ -49,12 +49,32 @@ export default function PartnerPage() {
     markPartnerUpdatesSeen();
   }, [markPartnerUpdatesSeen]);
 
-  const partnerTodayFeeling = useMemo(() => {
-    if (!partner) return undefined;
-    return state.dayExcitement.find(
-      (e) => e.userId === partner.id && e.date === todayKey(),
-    );
-  }, [partner, state.dayExcitement]);
+  const partnerFeelingByDate = useMemo(() => {
+    const byDate = new Map<
+      string,
+      | { kind: "journal"; mood: number; note: string }
+      | { kind: "legacy"; stars: number; note: string }
+    >();
+    if (!partner) return byDate;
+
+    for (const entry of state.dayExcitement) {
+      if (entry.userId !== partner.id) continue;
+      byDate.set(entry.date, {
+        kind: "legacy",
+        stars: entry.stars,
+        note: entry.note,
+      });
+    }
+    for (const entry of state.journalEntries) {
+      if (entry.userId !== partner.id) continue;
+      byDate.set(entry.date, {
+        kind: "journal",
+        mood: entry.mood,
+        note: entry.reflection,
+      });
+    }
+    return byDate;
+  }, [partner, state.dayExcitement, state.journalEntries]);
 
   if (!couple || !partner) {
     return (
@@ -145,39 +165,69 @@ export default function PartnerPage() {
                   {date === todayKey() ? " · Today" : ""}
                 </p>
                 <ul className="flex flex-col gap-2">
-                  {date === todayKey() ? (
-                    <li className="mb-1">
-                      {partnerTodayFeeling ? (
-                        <div className="rounded-2xl border border-border/60 bg-card/80 p-4">
-                          <div className="flex items-center gap-1">
-                            {Array.from({ length: STAR_MAX }, (_, i) => {
-                              const active = i + 1 <= partnerTodayFeeling.stars;
-                              return (
-                                <Star
-                                  key={i}
-                                  className={cn(
-                                    "size-4",
-                                    active ? "text-amber-500" : "text-muted-foreground/30",
-                                  )}
-                                  strokeWidth={1.7}
-                                  fill={active ? "currentColor" : "none"}
-                                />
-                              );
-                            })}
+                  <li className="mb-1">
+                    {(() => {
+                      const feeling = partnerFeelingByDate.get(date);
+                      if (feeling?.kind === "journal") {
+                        return (
+                          <div className="rounded-2xl border border-border/60 bg-card/80 p-4">
+                            <div className="flex items-center justify-between gap-2 text-[12px]">
+                              <span className="font-medium text-muted-foreground">Mood</span>
+                              <span className="font-semibold">{feeling.mood}/10</span>
+                            </div>
+                            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-muted/70">
+                              <div
+                                className="h-full rounded-full bg-gradient-to-r from-rose-400 via-amber-400 to-emerald-500"
+                                style={{
+                                  width: `${Math.max(
+                                    0,
+                                    Math.min(100, (feeling.mood / 10) * 100),
+                                  )}%`,
+                                }}
+                              />
+                            </div>
+                            <p className="mt-2 text-[13px] text-muted-foreground">
+                              {feeling.note.trim()
+                                ? feeling.note
+                                : `${partner.name.split(" ")[0]} has not added a note.`}
+                            </p>
                           </div>
-                          <p className="mt-2 text-[13px] text-muted-foreground">
-                            {partnerTodayFeeling.note.trim()
-                              ? partnerTodayFeeling.note
-                              : `${partner.name.split(" ")[0]} has not added a note today.`}
-                          </p>
-                        </div>
-                      ) : (
+                        );
+                      }
+                      if (feeling?.kind === "legacy") {
+                        return (
+                          <div className="rounded-2xl border border-border/60 bg-card/80 p-4">
+                            <div className="flex items-center gap-1">
+                              {Array.from({ length: STAR_MAX }, (_, i) => {
+                                const active = i + 1 <= feeling.stars;
+                                return (
+                                  <Star
+                                    key={i}
+                                    className={cn(
+                                      "size-4",
+                                      active ? "text-amber-500" : "text-muted-foreground/30",
+                                    )}
+                                    strokeWidth={1.7}
+                                    fill={active ? "currentColor" : "none"}
+                                  />
+                                );
+                              })}
+                            </div>
+                            <p className="mt-2 text-[13px] text-muted-foreground">
+                              {feeling.note.trim()
+                                ? feeling.note
+                                : `${partner.name.split(" ")[0]} has not added a note.`}
+                            </p>
+                          </div>
+                        );
+                      }
+                      return (
                         <div className="rounded-2xl border border-dashed border-border bg-card/60 p-4 text-[13px] text-muted-foreground">
-                          {partner.name.split(" ")[0]} has not checked in yet today.
+                          {partner.name.split(" ")[0]} has not checked in on this day.
                         </div>
-                      )}
-                    </li>
-                  ) : null}
+                      );
+                    })()}
+                  </li>
                   {habitsForDate.map((habit) => {
                       const done = state.completions.some(
                         (c) =>
