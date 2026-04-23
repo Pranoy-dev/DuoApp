@@ -135,13 +135,6 @@ export function DayCompleteCelebration() {
     if (!meId || active) return;
     if (totalHabits <= 0) return;
     if (doneCount < totalHabits - 1) return;
-    void prefetchQuote(date);
-  }, [active, date, doneCount, totalHabits, meId, prefetchQuote]);
-
-  useEffect(() => {
-    if (!meId || active) return;
-    if (totalHabits <= 0) return;
-    if (doneCount < totalHabits - 1) return;
     const onVisible = () => {
       if (document.visibilityState !== "visible") return;
       void prefetchQuote(date);

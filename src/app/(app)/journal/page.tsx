@@ -129,7 +129,6 @@ export default function JournalPage() {
   const [wantsJournalEdit, setWantsJournalEdit] = useState(false);
 
   const formCollapsed = Boolean(todayEntry) && !wantsToEdit;
-  const journalCollapsed = Boolean(todayJournalEntry) && !wantsJournalEdit;
   const showJournalFocusMode = !todayJournalEntry || wantsJournalEdit;
 
   const [draft, setDraft] = useState({ stars: 0, note: "" });
@@ -280,21 +279,6 @@ export default function JournalPage() {
     });
     setWantsToEdit(true);
   };
-  const startJournalEditing = () => {
-    setJournalDraft({
-      mood: todayJournalEntry?.mood ?? 6,
-      reflection: todayJournalEntry?.reflection ?? "",
-      causeBuckets:
-        todayJournalEntry?.causeBuckets.length
-          ? todayJournalEntry.causeBuckets
-          : ["Random"],
-    });
-    setBucketTouched(Boolean(todayJournalEntry?.causeBuckets.length));
-    setAddingBucket(false);
-    setCustomBucketDraft("");
-    setWantsJournalEdit(true);
-  };
-
   return (
     <MobileScreen
       eyebrow="Journal"
