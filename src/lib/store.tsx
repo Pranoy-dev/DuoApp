@@ -205,23 +205,26 @@ function sharedCoupleStreakDays(
 
 function globalMilestonesAfterFirstDailyCompletion(
   s: AppState,
-  userId: string,
   date: string,
   completions: Completion[],
 ): MilestoneAchievement[] {
   if (!s.couple || s.couple.members.length < 2) return [];
   const memberIds = s.couple.members.map((m) => m.id);
   const streak = sharedCoupleStreakDays(completions, memberIds, date);
-  const already = new Set(s.milestones.filter((m) => m.userId === userId).map((m) => m.tier));
   const unlocked: MilestoneAchievement[] = [];
-  for (const tier of MILESTONE_TIERS) {
-    if (streak >= tier && !already.has(tier)) {
-      unlocked.push({
-        id: uid("m"),
-        userId,
-        tier,
-        achievedAt: new Date().toISOString(),
-      });
+  for (const memberId of memberIds) {
+    const already = new Set(
+      s.milestones.filter((m) => m.userId === memberId).map((m) => m.tier),
+    );
+    for (const tier of MILESTONE_TIERS) {
+      if (streak >= tier && !already.has(tier)) {
+        unlocked.push({
+          id: uid("m"),
+          userId: memberId,
+          tier,
+          achievedAt: new Date().toISOString(),
+        });
+      }
     }
   }
   return unlocked;
@@ -283,7 +286,6 @@ function applyCompletionWithGlobalMilestones(
   if (!wasFirstForDay) return next;
   const unlocked = globalMilestonesAfterFirstDailyCompletion(
     s,
-    args.userId,
     args.date,
     next.completions,
   );

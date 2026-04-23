@@ -625,7 +625,6 @@ export async function toggleCompletionAction(input: {
     ) {
       await syncGlobalMilestonesForFirstDailyCompletion(
         supabase,
-        input.userId,
         state.couple.members.map((m) => m.id),
         date,
         state.completions,

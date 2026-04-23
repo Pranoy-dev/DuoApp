@@ -1,18 +1,24 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useStore } from "@/lib/store";
+import { todayKey } from "@/lib/date";
 import { MILESTONE_THEMES } from "@/lib/milestones";
 
 const SEEN_MILESTONES_KEY = "duo.milestones.seen.v1";
 
 export function MilestoneOverlay() {
   const { state } = useStore();
+  const me = state.me;
+  const storageKey = useMemo(
+    () => `${SEEN_MILESTONES_KEY}:${me?.id ?? "anon"}`,
+    [me?.id],
+  );
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => {
     if (typeof window === "undefined") return new Set();
     try {
-      const raw = window.localStorage.getItem(SEEN_MILESTONES_KEY);
+      const raw = window.localStorage.getItem(storageKey);
       if (!raw) return new Set();
       const parsed = JSON.parse(raw) as string[];
       return new Set(parsed);
@@ -21,14 +27,34 @@ export function MilestoneOverlay() {
     }
   });
   const reduceMotion = useReducedMotion();
+  const today = todayKey();
+  const persistedDismissedIds = useMemo(() => {
+    if (typeof window === "undefined") return new Set<string>();
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      if (!raw) return new Set<string>();
+      const parsed = JSON.parse(raw) as string[];
+      return new Set(parsed);
+    } catch {
+      return new Set<string>();
+    }
+  }, [storageKey]);
+  const allDismissedIds = useMemo(() => {
+    const merged = new Set<string>(persistedDismissedIds);
+    for (const id of dismissedIds) merged.add(id);
+    return merged;
+  }, [persistedDismissedIds, dismissedIds]);
+
   const activeMilestone = useMemo(() => {
-    const me = state.me;
     if (!me) return null;
     return (
-      state.milestones.find((m) => m.userId === me.id && !dismissedIds.has(m.id)) ??
-      null
+      state.milestones.find((m) => {
+        if (m.userId !== me.id || allDismissedIds.has(m.id)) return false;
+        if (!m.achievedAt?.startsWith(today)) return false;
+        return true;
+      }) ?? null
     );
-  }, [state.me, state.milestones, dismissedIds]);
+  }, [me, state.milestones, allDismissedIds, today]);
   const active = activeMilestone
     ? MILESTONE_THEMES[activeMilestone.tier as keyof typeof MILESTONE_THEMES] ??
       null
@@ -48,25 +74,30 @@ export function MilestoneOverlay() {
   useEffect(() => {
     try {
       window.localStorage.setItem(
-        SEEN_MILESTONES_KEY,
-        JSON.stringify([...dismissedIds]),
+        storageKey,
+        JSON.stringify([...allDismissedIds]),
       );
     } catch {
       // ignore write failures
     }
-  }, [dismissedIds]);
+  }, [allDismissedIds, storageKey]);
+
+  const dismissActive = useCallback(() => {
+    if (!activeMilestone) return;
+    setDismissedIds((prev) => {
+      const next = new Set(prev);
+      next.add(activeMilestone.id);
+      return next;
+    });
+  }, [activeMilestone]);
 
   useEffect(() => {
     if (!activeMilestone) return;
     const t = window.setTimeout(() => {
-      setDismissedIds((prev) => {
-        const next = new Set(prev);
-        next.add(activeMilestone.id);
-        return next;
-      });
-    }, 3200);
+      dismissActive();
+    }, 2200);
     return () => clearTimeout(t);
-  }, [activeMilestone]);
+  }, [activeMilestone, dismissActive]);
 
   return (
     <AnimatePresence>
@@ -77,6 +108,7 @@ export function MilestoneOverlay() {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           className="fixed inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-md"
+          onClick={dismissActive}
         >
           <div className="relative flex flex-col items-center gap-6 px-8 text-center">
             {!reduceMotion &&
@@ -115,6 +147,7 @@ export function MilestoneOverlay() {
               initial={reduceMotion ? { opacity: 0 } : { y: 12, opacity: 0 }}
               animate={reduceMotion ? { opacity: 1 } : { y: 0, opacity: 1 }}
               transition={{ delay: reduceMotion ? 0 : 0.2 }}
+              onClick={(e) => e.stopPropagation()}
             >
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
                 Milestone · {active.tier} days
@@ -122,6 +155,9 @@ export function MilestoneOverlay() {
               <h2 className="mt-2 text-2xl font-semibold">{active.label}</h2>
               <p className="mt-1 max-w-[280px] text-[15px] text-muted-foreground">
                 {active.blurb}
+              </p>
+              <p className="mt-2 text-[11px] font-medium uppercase tracking-[0.24em] text-muted-foreground/80">
+                Tap anywhere to close
               </p>
             </motion.div>
           </div>

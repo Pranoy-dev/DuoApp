@@ -1,4 +1,4 @@
-export const MILESTONE_TIERS = [3, 7, 14, 30, 60, 100, 180, 365] as const;
+export const MILESTONE_TIERS = [3, 5, 7, 14, 30, 60, 100, 180, 365] as const;
 
 export type MilestoneTier = (typeof MILESTONE_TIERS)[number];
 
@@ -16,6 +16,13 @@ export const MILESTONE_THEMES: Record<MilestoneTier, MilestoneTheme> = {
     label: "First flame",
     blurb: "Three days in a row. You found the groove.",
     emoji: "✦",
+    intensity: "pulse",
+  },
+  5: {
+    tier: 5,
+    label: "Steady spark",
+    blurb: "Five days strong. The rhythm is locking in.",
+    emoji: "✷",
     intensity: "pulse",
   },
   7: {

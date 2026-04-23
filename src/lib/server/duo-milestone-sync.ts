@@ -32,23 +32,26 @@ function sharedCoupleStreakDays(
 
 export async function syncGlobalMilestonesForFirstDailyCompletion(
   supabase: SupabaseClient,
-  userId: string,
   memberIds: string[],
   asOfDate: string,
   completions: Completion[],
   existingMilestones: MilestoneAchievement[],
 ): Promise<void> {
   const streak = sharedCoupleStreakDays(completions, memberIds, asOfDate);
-  const already = new Set(existingMilestones.filter((m) => m.userId === userId).map((m) => m.tier));
-  for (const tier of MILESTONE_TIERS) {
-    if (streak >= tier && !already.has(tier)) {
-      const { error } = await supabase.from("milestones").insert({
-        user_id: userId,
-        habit_id: null,
-        tier,
-      });
-      if (error && !error.message.includes("duplicate")) {
-        console.error("milestone insert", error);
+  for (const memberId of memberIds) {
+    const already = new Set(
+      existingMilestones.filter((m) => m.userId === memberId).map((m) => m.tier),
+    );
+    for (const tier of MILESTONE_TIERS) {
+      if (streak >= tier && !already.has(tier)) {
+        const { error } = await supabase.from("milestones").insert({
+          user_id: memberId,
+          habit_id: null,
+          tier,
+        });
+        if (error && !error.message.includes("duplicate")) {
+          console.error("milestone insert", error);
+        }
       }
     }
   }
