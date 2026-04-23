@@ -804,6 +804,7 @@ export async function saveDayExcitementAction(input: {
 
 export async function saveJournalEntryAction(input: {
   mood: number;
+  date?: string;
   promptId: string;
   promptText: string;
   reflection: string;
@@ -812,7 +813,9 @@ export async function saveJournalEntryAction(input: {
   try {
     const ctx = await requireDuoContext();
     const supabase = getServiceSupabase()!;
-    const date = todayKey();
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(input.date ?? "")
+      ? (input.date as string)
+      : todayKey();
     const mood = Math.min(10, Math.max(1, Math.round(input.mood)));
     const promptId = input.promptId.trim().slice(0, 80);
     const promptText = input.promptText.trim().slice(0, 280);

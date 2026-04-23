@@ -21,6 +21,7 @@ const MOOD_MAX = 10;
 const CHART_WIDTH = 340;
 const CHART_HEIGHT = 170;
 const CHART_PAD = 22;
+const JOURNAL_SAVED_TODAY_KEY = "duo.journal.saved.v1";
 
 function StarRow({
   value,
@@ -127,9 +128,11 @@ export default function JournalPage() {
   /** When false and today is saved, the big check-in card is collapsed. */
   const [wantsToEdit, setWantsToEdit] = useState(false);
   const [wantsJournalEdit, setWantsJournalEdit] = useState(false);
+  const [savedTodayOverride, setSavedTodayOverride] = useState(false);
 
   const formCollapsed = Boolean(todayEntry) && !wantsToEdit;
-  const showJournalFocusMode = !todayJournalEntry || wantsJournalEdit;
+  const hasSavedJournalToday = Boolean(todayJournalEntry) || savedTodayOverride;
+  const showJournalFocusMode = !hasSavedJournalToday || wantsJournalEdit;
 
   const [draft, setDraft] = useState({ stars: 0, note: "" });
   const [journalDraft, setJournalDraft] = useState({
@@ -205,6 +208,26 @@ export default function JournalPage() {
   const canAddCustomBucket = Boolean(customBucketDraft.trim());
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const key = `${JOURNAL_SAVED_TODAY_KEY}:${me.id}:${today}`;
+    if (todayJournalEntry) {
+      queueMicrotask(() => setSavedTodayOverride(true));
+      try {
+        window.localStorage.setItem(key, "1");
+      } catch {
+        // ignore write failures
+      }
+      return;
+    }
+    try {
+      const hasSaved = window.localStorage.getItem(key) === "1";
+      queueMicrotask(() => setSavedTodayOverride(hasSaved));
+    } catch {
+      queueMicrotask(() => setSavedTodayOverride(false));
+    }
+  }, [me.id, today, todayJournalEntry]);
+
+  useEffect(() => {
     if (!isComposingReflection) return;
     const handleScrollCollapse = () => {
       setIsComposingReflection(false);
@@ -235,12 +258,24 @@ export default function JournalPage() {
     void (async () => {
       try {
         await saveJournalEntry({
+          date: today,
           mood: journalDraft.mood,
           promptId: dailyPrompt.id,
           promptText: dailyPrompt.text,
           reflection: journalDraft.reflection,
           causeBuckets: journalDraft.causeBuckets,
         });
+        setSavedTodayOverride(true);
+        if (typeof window !== "undefined") {
+          try {
+            window.localStorage.setItem(
+              `${JOURNAL_SAVED_TODAY_KEY}:${me.id}:${today}`,
+              "1",
+            );
+          } catch {
+            // ignore write failures
+          }
+        }
         setWantsJournalEdit(false);
       } catch {
         /* toast optional */

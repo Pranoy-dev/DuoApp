@@ -380,6 +380,7 @@ type StoreValue = {
   saveDayExcitement: (input: { stars: number; note: string }) => Promise<void>;
   saveJournalEntry: (input: {
     mood: number;
+    date?: string;
     promptId: string;
     promptText: string;
     reflection: string;
@@ -546,82 +547,85 @@ function StoreProviderCore({
     if (typeof requestSeq === "number") {
       lastAppliedRemoteRequestSeqRef.current = requestSeq;
     }
-    const previous = previousPartnerSnapshotRef.current;
-    let nextState = applyReplenishToState({
-      ...EMPTY,
-      ...data,
-      habits: (data.habits ?? []).map((h) => normalizeHabit(h)),
-      me: data.me ? normalizePerson(data.me) : null,
-      couple: data.couple
-        ? {
-            ...data.couple,
-            members: (data.couple.members ?? []).map((m) =>
-              normalizePerson(m as Person),
-            ),
-          }
-        : null,
-      dayExcitement: data.dayExcitement ?? [],
-      journalEntries: data.journalEntries ?? [],
-      journalUserBuckets: data.journalUserBuckets ?? [],
-    });
-    // Preserve newer local journal edits when cloud responses lag behind.
-    const localState = stateRef.current;
-    if (localState.journalEntries.length > 0) {
-      const mergedByDay = new Map<string, JournalEntry>();
-      for (const entry of nextState.journalEntries) {
-        mergedByDay.set(`${entry.userId}::${entry.date}`, entry);
-      }
-      for (const entry of localState.journalEntries) {
-        const key = `${entry.userId}::${entry.date}`;
-        const existing = mergedByDay.get(key);
-        if (!existing || entry.savedAt > existing.savedAt) {
-          mergedByDay.set(key, entry);
-        }
-      }
-      nextState = { ...nextState, journalEntries: [...mergedByDay.values()] };
-    }
-    if (localState.journalUserBuckets.length > 0) {
-      const mergedBuckets = new Map<string, JournalUserBucket>();
-      for (const bucket of nextState.journalUserBuckets) {
-        mergedBuckets.set(`${bucket.userId}::${bucket.normalizedLabel}`, bucket);
-      }
-      for (const bucket of localState.journalUserBuckets) {
-        const key = `${bucket.userId}::${bucket.normalizedLabel}`;
-        const existing = mergedBuckets.get(key);
-        const existingRecency = existing?.lastSelectedAt ?? "";
-        const localRecency = bucket.lastSelectedAt ?? "";
-        if (!existing || localRecency > existingRecency) {
-          mergedBuckets.set(key, bucket);
-        }
-      }
-      nextState = { ...nextState, journalUserBuckets: [...mergedBuckets.values()] };
-    }
-    for (const p of pendingByOpRef.current.values()) {
-      nextState = applyCompletionState(nextState, {
-        habitId: p.habitId,
-        userId: p.userId,
-        date: p.date,
-        done: p.nextDone,
+    let badgeDelta = 0;
+    setState((currentState) => {
+      const previous = previousPartnerSnapshotRef.current;
+      let nextState = applyReplenishToState({
+        ...EMPTY,
+        ...data,
+        habits: (data.habits ?? []).map((h) => normalizeHabit(h)),
+        me: data.me ? normalizePerson(data.me) : null,
+        couple: data.couple
+          ? {
+              ...data.couple,
+              members: (data.couple.members ?? []).map((m) =>
+                normalizePerson(m as Person),
+              ),
+            }
+          : null,
+        dayExcitement: data.dayExcitement ?? [],
+        journalEntries: data.journalEntries ?? [],
+        journalUserBuckets: data.journalUserBuckets ?? [],
       });
-    }
-    const next = partnerActivitySnapshot(nextState);
-    if (remoteHydratedRef.current) {
-      let delta = 0;
-      if (!previous.partnerId && next.partnerId) delta += 1;
-      if (previous.partnerId && next.partnerId && previous.partnerId === next.partnerId) {
-        for (const id of next.sharedHabitIds) {
-          if (!previous.sharedHabitIds.has(id)) delta += 1;
+      // Preserve newer local journal edits when cloud responses lag behind.
+      if (currentState.journalEntries.length > 0) {
+        const mergedByDay = new Map<string, JournalEntry>();
+        for (const entry of nextState.journalEntries) {
+          mergedByDay.set(`${entry.userId}::${entry.date}`, entry);
         }
-        for (const key of next.completionKeys) {
-          if (!previous.completionKeys.has(key)) delta += 1;
+        for (const entry of currentState.journalEntries) {
+          const key = `${entry.userId}::${entry.date}`;
+          const existing = mergedByDay.get(key);
+          if (!existing || entry.savedAt > existing.savedAt) {
+            mergedByDay.set(key, entry);
+          }
         }
+        nextState = { ...nextState, journalEntries: [...mergedByDay.values()] };
       }
-      if (delta > 0) setPartnerUpdatesBadge((n) => n + delta);
-    } else {
-      remoteHydratedRef.current = true;
-    }
-    previousPartnerSnapshotRef.current = next;
-    setState(nextState);
+      if (currentState.journalUserBuckets.length > 0) {
+        const mergedBuckets = new Map<string, JournalUserBucket>();
+        for (const bucket of nextState.journalUserBuckets) {
+          mergedBuckets.set(`${bucket.userId}::${bucket.normalizedLabel}`, bucket);
+        }
+        for (const bucket of currentState.journalUserBuckets) {
+          const key = `${bucket.userId}::${bucket.normalizedLabel}`;
+          const existing = mergedBuckets.get(key);
+          const existingRecency = existing?.lastSelectedAt ?? "";
+          const localRecency = bucket.lastSelectedAt ?? "";
+          if (!existing || localRecency > existingRecency) {
+            mergedBuckets.set(key, bucket);
+          }
+        }
+        nextState = { ...nextState, journalUserBuckets: [...mergedBuckets.values()] };
+      }
+      for (const p of pendingByOpRef.current.values()) {
+        nextState = applyCompletionState(nextState, {
+          habitId: p.habitId,
+          userId: p.userId,
+          date: p.date,
+          done: p.nextDone,
+        });
+      }
+      const next = partnerActivitySnapshot(nextState);
+      if (remoteHydratedRef.current) {
+        let delta = 0;
+        if (!previous.partnerId && next.partnerId) delta += 1;
+        if (previous.partnerId && next.partnerId && previous.partnerId === next.partnerId) {
+          for (const id of next.sharedHabitIds) {
+            if (!previous.sharedHabitIds.has(id)) delta += 1;
+          }
+          for (const key of next.completionKeys) {
+            if (!previous.completionKeys.has(key)) delta += 1;
+          }
+        }
+        badgeDelta = delta;
+      } else {
+        remoteHydratedRef.current = true;
+      }
+      previousPartnerSnapshotRef.current = next;
+      return nextState;
+    });
+    if (badgeDelta > 0) setPartnerUpdatesBadge((n) => n + badgeDelta);
   }, []);
 
   const refreshBootstrapFromServer = useCallback(async () => {
@@ -1532,15 +1536,16 @@ function StoreProviderCore({
   const saveJournalEntry = useCallback(
     async (input: {
       mood: number;
+      date?: string;
       promptId: string;
       promptText: string;
       reflection: string;
       causeBuckets: string[];
     }) => {
+      const date = input.date ?? todayKey();
       const applyLocalJournalEntry = () => {
         setState((s) => {
           if (!s.me) return s;
-          const date = todayKey();
           const mood = Math.min(10, Math.max(1, Math.round(input.mood)));
           const reflection = input.reflection.trim().slice(0, 600);
           const savedAt = new Date().toISOString();
@@ -1585,7 +1590,7 @@ function StoreProviderCore({
 
       if (duoCloudActive) {
         try {
-          const r = await duoActions.saveJournalEntryAction(input);
+          const r = await duoActions.saveJournalEntryAction({ ...input, date });
           if (!r.ok) {
             // Keep Journal usable even if backend migration isn't applied yet.
             applyLocalJournalEntry();
