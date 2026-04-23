@@ -9,15 +9,13 @@ import {
   FALLBACK_QUOTES,
   getLocalDeviceSeed,
   pickFallbackQuote,
-  readCachedQuote,
   setCelebrationStorageScope,
-  writeCachedQuote,
   type CachedQuote,
 } from "@/lib/quotes-storage";
 import { useDayCompleteTrigger } from "@/hooks/use-day-complete-trigger";
 import { GiftBox } from "./gift-box";
 
-const AUTO_DISMISS_MS = 9000;
+const AUTO_DISMISS_MS = 10000;
 
 export function DayCompleteCelebration() {
   const { state } = useStore();
@@ -40,11 +38,6 @@ export function DayCompleteCelebration() {
 
   const loadQuote = useCallback(
     async (dateKey: string) => {
-      const cached = readCachedQuote(dateKey);
-      if (cached) {
-        setQuote(cached);
-        return;
-      }
       try {
         const r = await getDailyQuoteAction({
           dateKey,
@@ -57,7 +50,6 @@ export function DayCompleteCelebration() {
             author: r.data.author,
           };
           setQuote(next);
-          writeCachedQuote(dateKey, next);
           return;
         }
       } catch {
@@ -117,31 +109,31 @@ export function DayCompleteCelebration() {
         };
         fireRaf = window.requestAnimationFrame(() => {
           fn({
-            particleCount: 90,
-            spread: 75,
-            startVelocity: 38,
-            origin: { x: 0.5, y: 0.55 },
-            scalar: 0.95,
-            ticks: 220,
+            particleCount: 64,
+            spread: 58,
+            startVelocity: 32,
+            origin: { x: 0.5, y: 0.58 },
+            scalar: 0.86,
+            ticks: 210,
           });
         });
         burstTimers.push(
           window.setTimeout(() => {
             fn({
-              particleCount: 55,
-              angle: 60,
-              spread: 60,
-              startVelocity: 42,
-              origin: { x: 0.1, y: 0.7 },
-              scalar: 0.9,
+              particleCount: 28,
+              angle: 64,
+              spread: 42,
+              startVelocity: 30,
+              origin: { x: 0.16, y: 0.73 },
+              scalar: 0.8,
             });
             fn({
-              particleCount: 55,
-              angle: 120,
-              spread: 60,
-              startVelocity: 42,
-              origin: { x: 0.9, y: 0.7 },
-              scalar: 0.9,
+              particleCount: 28,
+              angle: 116,
+              spread: 42,
+              startVelocity: 30,
+              origin: { x: 0.84, y: 0.73 },
+              scalar: 0.8,
             });
           }, 280),
         );
@@ -198,14 +190,14 @@ export function DayCompleteCelebration() {
         >
           <div
             aria-hidden
-            className="absolute inset-0 bg-gradient-to-b from-background/80 via-background/70 to-background/85 backdrop-blur-xl"
+            className="absolute inset-0 bg-gradient-to-b from-background/88 via-background/78 to-background/86 backdrop-blur-xl"
           />
           <div
             aria-hidden
-            className="absolute inset-0 opacity-80"
+            className="absolute inset-0 opacity-90"
             style={{
               background:
-                "radial-gradient(60% 50% at 50% 40%, color-mix(in oklab, var(--duo) 30%, transparent) 0%, transparent 70%)",
+                "radial-gradient(62% 52% at 50% 38%, color-mix(in oklab, var(--duo) 34%, transparent) 0%, transparent 70%)",
             }}
           />
           {!reduceMotion && (
@@ -224,9 +216,15 @@ export function DayCompleteCelebration() {
               {!revealed ? (
                 <motion.div
                   key="gift"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0, scale: 0.8, transition: { duration: 0.2 } }}
+                  initial={{ opacity: 0, y: 8, scale: 0.96 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{
+                    opacity: 0,
+                    scale: 0.84,
+                    y: -30,
+                    filter: "blur(3px)",
+                    transition: { duration: 0.24, ease: "easeInOut" },
+                  }}
                   className="flex items-center justify-center"
                 >
                   <GiftBox size={172} onReveal={handleReveal} clickable />
@@ -237,21 +235,25 @@ export function DayCompleteCelebration() {
                   initial={
                     reduceMotion
                       ? { opacity: 0 }
-                      : { y: 28, opacity: 0, scale: 0.94 }
+                      : { y: 30, opacity: 0, scaleY: 0.72, scaleX: 0.96, rotateX: -14 }
                   }
                   animate={
                     reduceMotion
                       ? { opacity: 1 }
-                      : { y: 0, opacity: 1, scale: 1 }
+                      : { y: 0, opacity: 1, scaleY: 1, scaleX: 1, rotateX: 0 }
                   }
                   transition={
                     reduceMotion
                       ? { duration: 0.24 }
-                      : { type: "spring", stiffness: 200, damping: 22 }
+                      : { type: "spring", stiffness: 190, damping: 20, mass: 0.9 }
                   }
-                  className="w-[min(360px,calc(100vw-3rem))]"
+                  className="w-[min(370px,calc(100vw-2.6rem))] [transform-style:preserve-3d]"
                 >
-                  <div className="overflow-hidden rounded-3xl border border-border/50 bg-card/95 shadow-[0_30px_80px_-20px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+                  <div className="relative overflow-hidden rounded-[32px] border border-amber-200/35 bg-[linear-gradient(180deg,rgba(255,251,242,0.97),rgba(254,246,232,0.96))] shadow-[0_34px_90px_-26px_rgba(0,0,0,0.45)] backdrop-blur-xl dark:border-amber-100/20 dark:bg-[linear-gradient(180deg,rgba(46,37,28,0.96),rgba(39,31,24,0.96))]">
+                    <div
+                      aria-hidden
+                      className="pointer-events-none absolute left-1/2 top-0 h-5 w-[78%] -translate-x-1/2 rounded-b-[999px] bg-black/8 blur-sm dark:bg-black/30"
+                    />
                     <div
                       aria-hidden
                       className="relative h-1.5 w-full"
@@ -260,11 +262,11 @@ export function DayCompleteCelebration() {
                           "linear-gradient(90deg, var(--duo), var(--duo-soft), var(--duo))",
                       }}
                     />
-                    <div className="flex flex-col items-center gap-3 px-6 pb-5 pt-6 text-center">
-                      <span className="text-[10px] font-semibold uppercase tracking-[0.32em] text-muted-foreground">
+                    <div className="flex flex-col items-center gap-3 px-6 pb-6 pt-6 text-center">
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.34em] text-amber-700/80 dark:text-amber-200/80">
                         Day complete
                       </span>
-                      <h2 className="text-[22px] font-semibold leading-tight text-foreground">
+                      <h2 className="text-[23px] font-semibold leading-tight text-foreground">
                         {doneCount > 1
                           ? `${doneCount} habits, done.`
                           : doneCount === 1
@@ -274,19 +276,19 @@ export function DayCompleteCelebration() {
                       <figure className="flex flex-col items-center gap-2 pt-1">
                         <span
                           aria-hidden
-                          className="block h-px w-10 rounded-full bg-duo/50"
+                          className="block h-px w-12 rounded-full bg-duo/55"
                         />
-                        <blockquote className="max-w-[280px] text-pretty text-[15.5px] font-medium leading-relaxed text-foreground/90">
+                        <blockquote className="max-w-[290px] text-pretty text-[16px] font-medium leading-relaxed text-foreground/92">
                           &ldquo;{resolvedQuote.text}&rdquo;
                         </blockquote>
                         {resolvedQuote.author ? (
-                          <figcaption className="text-[10.5px] font-medium uppercase tracking-[0.28em] text-muted-foreground">
+                          <figcaption className="text-[10.5px] font-medium uppercase tracking-[0.28em] text-foreground/55">
                             {resolvedQuote.author}
                           </figcaption>
                         ) : null}
                       </figure>
                       <Button
-                        className="mt-3 h-10 rounded-full bg-duo px-6 text-sm font-semibold text-duo-foreground shadow-sm hover:bg-duo/90"
+                        className="mt-3 h-10 rounded-full bg-duo px-7 text-sm font-semibold text-duo-foreground shadow-[0_10px_26px_-14px_rgba(0,0,0,0.5)] hover:bg-duo/90"
                         onClick={() => acknowledge()}
                       >
                         Collect

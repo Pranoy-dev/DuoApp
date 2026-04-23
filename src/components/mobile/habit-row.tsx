@@ -1,6 +1,7 @@
 "use client";
 
-import { type MouseEvent, useMemo, useState } from "react";
+import { type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { Check } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -46,6 +47,8 @@ export function HabitRow({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [showTickPulse, setShowTickPulse] = useState(false);
+  const tickPulseTimeoutRef = useRef<number | null>(null);
   const [draft, setDraft] = useState(() => ({
     name: habit.name,
     visibility: habit.visibility,
@@ -90,6 +93,15 @@ export function HabitRow({
       .catch((e: unknown) => {
         toast.error(e instanceof Error ? e.message : "Could not sync this change.");
       });
+    if (!doneToday) {
+      setShowTickPulse(true);
+      if (tickPulseTimeoutRef.current != null) {
+        window.clearTimeout(tickPulseTimeoutRef.current);
+      }
+      tickPulseTimeoutRef.current = window.setTimeout(() => {
+        setShowTickPulse(false);
+      }, 420);
+    }
     if (typeof navigator !== "undefined" && "vibrate" in navigator) {
       try {
         navigator.vibrate(doneToday ? 8 : [6, 18, 10]);
@@ -98,6 +110,14 @@ export function HabitRow({
       }
     }
   };
+
+  useEffect(() => {
+    return () => {
+      if (tickPulseTimeoutRef.current != null) {
+        window.clearTimeout(tickPulseTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const canEdit = Boolean(me && habit.ownerId === me.id && interactive);
   const habitStillExists = state.habits.some((h) => h.id === habit.id);
@@ -240,19 +260,40 @@ export function HabitRow({
             disabled={completionDisabled}
             aria-pressed={doneToday}
             className={cn(
-              "relative z-[2] flex size-9 shrink-0 items-center justify-center rounded-full border transition-all",
+              "relative z-[2] flex size-9 shrink-0 items-center justify-center rounded-full border transition-all active:scale-95",
               doneToday
-                ? "border-transparent bg-foreground text-background"
+                ? "border-transparent bg-foreground text-background shadow-[0_8px_22px_-14px_rgba(0,0,0,0.7)] ring-1 ring-foreground/10"
                 : "border-border/80 bg-background text-muted-foreground group-hover:border-foreground/40",
             )}
           >
-            <Check
-              className={cn(
-                "size-4 transition-all",
-                doneToday ? "opacity-100 scale-100" : "opacity-0 scale-75",
-              )}
-              strokeWidth={2.75}
-            />
+            <AnimatePresence>
+              {showTickPulse ? (
+                <motion.span
+                  aria-hidden
+                  className="pointer-events-none absolute inset-0 rounded-full border border-foreground/45"
+                  initial={{ opacity: 0.45, scale: 0.85 }}
+                  animate={{ opacity: 0, scale: 1.34 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.38, ease: "easeOut" }}
+                />
+              ) : null}
+            </AnimatePresence>
+            <motion.span
+              initial={false}
+              animate={
+                doneToday
+                  ? { opacity: 1, scale: 1, rotate: 0 }
+                  : { opacity: 0, scale: 0.72, rotate: -12 }
+              }
+              transition={{
+                type: "spring",
+                stiffness: 420,
+                damping: 26,
+                mass: 0.75,
+              }}
+            >
+              <Check className="size-4" strokeWidth={2.75} />
+            </motion.span>
           </button>
         ) : null}
       </div>

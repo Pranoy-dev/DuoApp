@@ -63,7 +63,7 @@ export function GiftBox({
 
   const wiggle = reduceMotion
     ? undefined
-    : { rotate: [0, -5, 5, -4, 4, -2, 0] };
+    : { rotate: [0, -4, 4, -3, 3, -1.5, 0] };
 
   const lidExit = reduceMotion
     ? { y: -12, opacity: 0 }
@@ -112,14 +112,24 @@ export function GiftBox({
         animate={
           reduceMotion
             ? { opacity: 1, scale: 1 }
-            : { scale: 1, opacity: 1, ...(wiggle ?? {}) }
+            : {
+                scale: 1,
+                opacity: 1,
+                y: [0, -2, 0, -1, 0],
+                ...(wiggle ?? {}),
+              }
         }
         transition={
           reduceMotion
             ? { duration: 0.3, ease: "easeOut" }
             : {
-                scale: { type: "spring", stiffness: 260, damping: 16, delay: 0.05 },
+                scale: { type: "spring", stiffness: 240, damping: 17, delay: 0.05 },
                 opacity: { duration: 0.24 },
+                y: {
+                  duration: 1.2,
+                  delay: 0.2,
+                  ease: "easeInOut",
+                },
                 rotate: {
                   duration: 0.7,
                   delay: 0.25,
@@ -189,12 +199,12 @@ export function GiftBox({
         className="absolute inset-0"
         initial={reduceMotion ? { opacity: 0, y: -6 } : { y: -18, opacity: 0, scale: 0.9 }}
         animate={{
-          y: reduceMotion ? 0 : [-18, 0, -2, 0],
+          y: reduceMotion ? 0 : [-18, 0, -1.5, 0],
           opacity: 1,
           scale: 1,
           ...(reduceMotion ? {} : (wiggle ?? {})),
         }}
-        exit={lidExit}
+        exit={{ ...lidExit, filter: "blur(1.5px)" }}
         transition={
           reduceMotion
             ? { duration: 0.3, ease: "easeOut" }

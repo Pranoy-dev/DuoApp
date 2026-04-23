@@ -13,8 +13,8 @@ export type QuoteActionResult =
   | { ok: false; code: string; message: string };
 
 /**
- * Deterministic daily quote. Falls back to a client-supplied seed when the
- * user is not signed into Clerk, so local-only mode still gets a stable pick.
+ * Non-repeating quote fetch. In cloud mode this advances a per-user sequence.
+ * Falls back to a client-supplied seed when the user is not signed in.
  */
 export async function getDailyQuoteAction(input: {
   dateKey: string;
@@ -29,7 +29,7 @@ export async function getDailyQuoteAction(input: {
     }
     const { userId } = await auth();
     if (userId) {
-      const quote = await getDailyQuoteForClerkId(userId, input.dateKey);
+      const quote = await getDailyQuoteForClerkId(userId);
       return { ok: true, data: quote };
     }
     if (input.localSeed) {

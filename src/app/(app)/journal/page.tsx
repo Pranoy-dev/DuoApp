@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Plus, Star } from "lucide-react";
 import { MobileScreen } from "@/components/mobile/mobile-screen";
 import { Button } from "@/components/ui/button";
@@ -130,6 +130,7 @@ export default function JournalPage() {
 
   const formCollapsed = Boolean(todayEntry) && !wantsToEdit;
   const journalCollapsed = Boolean(todayJournalEntry) && !wantsJournalEdit;
+  const showJournalFocusMode = !todayJournalEntry || wantsJournalEdit;
 
   const [draft, setDraft] = useState({ stars: 0, note: "" });
   const [journalDraft, setJournalDraft] = useState({
@@ -141,6 +142,8 @@ export default function JournalPage() {
   const [addingBucket, setAddingBucket] = useState(false);
   const [customBucketDraft, setCustomBucketDraft] = useState("");
   const [showMoodTrend, setShowMoodTrend] = useState(false);
+  const [isComposingReflection, setIsComposingReflection] = useState(false);
+  const [suppressNextAutoExpand, setSuppressNextAutoExpand] = useState(false);
 
   const historyEntries = useMemo(() => {
     const list = [...(state.dayExcitement ?? [])].filter(
@@ -201,6 +204,21 @@ export default function JournalPage() {
     Boolean(journalDraft.reflection.trim()) &&
     journalDraft.causeBuckets.length > 0;
   const canAddCustomBucket = Boolean(customBucketDraft.trim());
+
+  useEffect(() => {
+    if (!isComposingReflection) return;
+    const handleScrollCollapse = () => {
+      setIsComposingReflection(false);
+      setSuppressNextAutoExpand(true);
+    };
+    window.addEventListener("scroll", handleScrollCollapse, { passive: true });
+    // Capture scroll from nested scroll containers (like MobileScreen content area).
+    document.addEventListener("scroll", handleScrollCollapse, true);
+    return () => {
+      window.removeEventListener("scroll", handleScrollCollapse);
+      document.removeEventListener("scroll", handleScrollCollapse, true);
+    };
+  }, [isComposingReflection]);
 
   const handleSave = () => {
     if (!canSave) return;
@@ -344,11 +362,30 @@ export default function JournalPage() {
       ) : (
         <>
       {!journalCollapsed ? (
-        <section className="mt-1 overflow-hidden rounded-[28px] border border-white/20 bg-gradient-to-b from-white/70 to-white/30 p-4 shadow-[0_12px_35px_-20px_rgba(0,0,0,0.45)] backdrop-blur-md dark:from-white/[0.08] dark:to-white/[0.03]">
+        <>
+        <section
+          className={cn(
+            "overflow-hidden rounded-[28px] border border-white/20 bg-gradient-to-b from-white/70 to-white/30 p-4 shadow-[0_12px_35px_-20px_rgba(0,0,0,0.45)] backdrop-blur-md dark:from-white/[0.08] dark:to-white/[0.03]",
+            showJournalFocusMode
+              ? "mt-0 -mx-1 flex min-h-[calc(100dvh-18rem)] flex-col pb-[max(env(safe-area-inset-bottom),5.5rem)]"
+              : "mt-1",
+          )}
+        >
           <div className="flex items-center gap-2">
             <p className="text-[14px] font-semibold tracking-tight">Daily check-in</p>
           </div>
-          <div className="mt-3 overflow-hidden rounded-2xl border border-border/60 bg-background/60">
+          <div
+            className={cn(
+              "relative mt-3 overflow-hidden rounded-2xl border border-border/60 bg-background/60",
+              showJournalFocusMode && "flex-1",
+            )}
+          >
+            {isComposingReflection ? (
+              <div
+                className="pointer-events-none absolute inset-0 z-10 bg-background/30 backdrop-blur-[2px] transition-opacity duration-200"
+                aria-hidden
+              />
+            ) : null}
             <label className="block px-3 py-3">
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
@@ -386,23 +423,52 @@ export default function JournalPage() {
                 {dailyPrompt.text}
               </p>
               <textarea
-                className="mt-2 min-h-[78px] w-full resize-y rounded-xl border border-border/80 bg-background/85 px-3 py-2 text-[14px] leading-relaxed outline-none ring-offset-background placeholder:text-muted-foreground/60 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+                className={cn(
+                  "relative mt-2 min-h-[78px] w-full resize-y rounded-xl border border-border/80 bg-background/85 px-3 py-2 text-[14px] leading-relaxed outline-none ring-offset-background placeholder:text-muted-foreground/60 transition-all duration-200 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30",
+                  isComposingReflection &&
+                    "z-20 -mx-2 min-h-[220px] w-[calc(100%+1rem)] rounded-2xl border-primary/40 bg-background shadow-[0_18px_45px_-24px_rgba(0,0,0,0.6)]",
+                )}
                 placeholder="Share your thoughts!"
                 value={journalDraft.reflection}
+                onFocus={() => {
+                  if (suppressNextAutoExpand) {
+                    setSuppressNextAutoExpand(false);
+                    return;
+                  }
+                  setIsComposingReflection(true);
+                }}
+                onBlur={() => setIsComposingReflection(false)}
                 onChange={(e) =>
-                  setJournalDraft((prev) => {
-                    const reflection = e.target.value;
-                    return {
-                      ...prev,
-                      reflection,
-                      causeBuckets: bucketTouched
-                        ? prev.causeBuckets
-                        : preselectCauseBuckets(reflection),
-                    };
-                  })
+                  {
+                    setIsComposingReflection(true);
+                    setSuppressNextAutoExpand(false);
+                    setJournalDraft((prev) => {
+                      const reflection = e.target.value;
+                      return {
+                        ...prev,
+                        reflection,
+                        causeBuckets: bucketTouched
+                          ? prev.causeBuckets
+                          : preselectCauseBuckets(reflection),
+                      };
+                    });
+                  }
                 }
                 maxLength={600}
               />
+              {isComposingReflection ? (
+                <div className="mt-2 flex justify-end">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="rounded-full"
+                    onClick={() => setIsComposingReflection(false)}
+                  >
+                    Done
+                  </Button>
+                </div>
+              ) : null}
             </label>
             <div className="border-t border-border/60 px-3 py-3">
             <div className="flex items-center justify-between gap-2">
@@ -495,6 +561,7 @@ export default function JournalPage() {
             Check-in
           </Button>
         </section>
+        </>
       ) : (
         <section className="mt-1 overflow-hidden rounded-[24px] border border-white/25 bg-gradient-to-b from-white/70 to-white/35 p-4 shadow-[0_12px_28px_-20px_rgba(0,0,0,0.45)] backdrop-blur-md dark:from-white/[0.08] dark:to-white/[0.03]">
           <div className="flex items-start justify-between gap-3">
@@ -550,7 +617,7 @@ export default function JournalPage() {
         </section>
       )}
 
-      {!formCollapsed ? (
+      {!showJournalFocusMode && !formCollapsed ? (
         <section className="mt-4 rounded-2xl border border-border/60 bg-card/80 p-4">
           <p className="text-center text-[13px] font-semibold leading-snug">
             How excited are you about the day?
@@ -584,7 +651,7 @@ export default function JournalPage() {
             Save today
           </Button>
         </section>
-      ) : (
+      ) : !showJournalFocusMode ? (
         <section className="mt-4 rounded-2xl border border-border/60 bg-card/80 p-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
@@ -622,8 +689,9 @@ export default function JournalPage() {
             </Button>
           </div>
         </section>
-      )}
+      ) : null}
 
+      {!showJournalFocusMode ? (
       <section className="mt-5">
         <h2 className="mb-2 px-0.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
           History
@@ -668,8 +736,9 @@ export default function JournalPage() {
           </ul>
         )}
       </section>
+      ) : null}
 
-      {journalHistory.length > 0 ? (
+      {!showJournalFocusMode && journalHistory.length > 0 ? (
         <section className="mt-5">
           <h2 className="mb-2 px-0.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
             Journal history

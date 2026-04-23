@@ -45,15 +45,49 @@ async function loadPool(): Promise<DailyQuote[]> {
   return quotes;
 }
 
-/** Deterministic per (clerkId, dateKey) daily pick from the active quotes pool. */
+/** Sequential non-repeating pick per user from the active quotes pool. */
 export async function getDailyQuoteForClerkId(
   clerkId: string,
-  dateKey: string,
 ): Promise<DailyQuote | null> {
+  const supabase = getServiceSupabase();
+  if (!supabase) return null;
   const pool = await loadPool();
   if (!pool.length) return null;
-  const seed = stableHash(`${clerkId}::${dateKey}`);
-  return pool[seed % pool.length] ?? null;
+  const { data: userRow } = await supabase
+    .from("users")
+    .select("id")
+    .eq("clerk_id", clerkId)
+    .maybeSingle();
+  const userId = userRow?.id as string | undefined;
+  if (!userId) {
+    const seed = stableHash(`${clerkId}::fallback`);
+    return pool[seed % pool.length] ?? null;
+  }
+
+  const { data: rotationRow } = await supabase
+    .from("user_quote_rotation")
+    .select("last_quote_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  const lastQuoteId = (rotationRow?.last_quote_id as string | null | undefined) ?? null;
+  const lastIndex = lastQuoteId
+    ? pool.findIndex((quote) => quote.id === lastQuoteId)
+    : -1;
+  const nextIndex = (lastIndex + 1 + pool.length) % pool.length;
+  const nextQuote = pool[nextIndex] ?? pool[0] ?? null;
+  if (!nextQuote) return null;
+
+  await supabase.from("user_quote_rotation").upsert(
+    {
+      user_id: userId,
+      last_quote_id: nextQuote.id,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id" },
+  );
+
+  return nextQuote;
 }
 
 /** Same as above but keyed on an arbitrary client-provided seed (local-only mode). */
