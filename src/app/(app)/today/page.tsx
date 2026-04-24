@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { createPortal } from "react-dom";
 import { Plus } from "lucide-react";
@@ -40,7 +40,6 @@ export default function TodayPage() {
   const [showAllDoneCelebration, setShowAllDoneCelebration] = useState(false);
   const previousDoneCountRef = useRef(doneCount);
   const previousTotalHabitsRef = useRef(totalHabits);
-  const overlayRootRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     const wasDone =
@@ -60,12 +59,13 @@ export default function TodayPage() {
     return () => window.clearTimeout(timeout);
   }, [showAllDoneCelebration]);
 
-  if (!overlayRootRef.current && typeof document !== "undefined") {
-    overlayRootRef.current = document.getElementById("app-shell-overlay-root");
-  }
+  const overlayRoot = useMemo(() => {
+    if (typeof document === "undefined") return null;
+    return document.getElementById("app-shell-overlay-root");
+  }, []);
 
   const celebrationOverlay =
-    overlayRootRef.current && showAllDoneCelebration
+    overlayRoot && showAllDoneCelebration
       ? createPortal(
           <AnimatePresence>
             <motion.div
@@ -108,7 +108,7 @@ export default function TodayPage() {
               </motion.div>
             </motion.div>
           </AnimatePresence>,
-          overlayRootRef.current,
+          overlayRoot,
         )
       : null;
 
