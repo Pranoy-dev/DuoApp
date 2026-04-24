@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useEffect, useMemo } from "react";
-import { Star } from "lucide-react";
 import { toast } from "sonner";
 import { MobileScreen } from "@/components/mobile/mobile-screen";
 import { Button } from "@/components/ui/button";
@@ -16,7 +15,6 @@ import { cn } from "@/lib/utils";
 
 const TIMELINE_DAYS = 14;
 const MAX_REVIVES = 3;
-const STAR_MAX = 5;
 
 function dateKeysLastNDays(n: number): string[] {
   const start = new Date();
@@ -50,31 +48,17 @@ export default function PartnerPage() {
   }, [markPartnerUpdatesSeen]);
 
   const partnerFeelingByDate = useMemo(() => {
-    const byDate = new Map<
-      string,
-      | { kind: "journal"; mood: number; note: string }
-      | { kind: "legacy"; stars: number; note: string }
-    >();
+    const byDate = new Map<string, { mood: number; note: string }>();
     if (!partner) return byDate;
-
-    for (const entry of state.dayExcitement) {
-      if (entry.userId !== partner.id) continue;
-      byDate.set(entry.date, {
-        kind: "legacy",
-        stars: entry.stars,
-        note: entry.note,
-      });
-    }
     for (const entry of state.journalEntries) {
       if (entry.userId !== partner.id) continue;
       byDate.set(entry.date, {
-        kind: "journal",
         mood: entry.mood,
         note: entry.reflection,
       });
     }
     return byDate;
-  }, [partner, state.dayExcitement, state.journalEntries]);
+  }, [partner, state.journalEntries]);
 
   if (!couple || !partner) {
     return (
@@ -168,7 +152,7 @@ export default function PartnerPage() {
                   <li className="mb-1">
                     {(() => {
                       const feeling = partnerFeelingByDate.get(date);
-                      if (feeling?.kind === "journal") {
+                      if (feeling) {
                         return (
                           <div className="rounded-2xl border border-border/60 bg-card/80 p-4">
                             <div className="flex items-center justify-between gap-2 text-[12px]">
@@ -185,33 +169,6 @@ export default function PartnerPage() {
                                   )}%`,
                                 }}
                               />
-                            </div>
-                            <p className="mt-2 text-[13px] text-muted-foreground">
-                              {feeling.note.trim()
-                                ? feeling.note
-                                : `${partner.name.split(" ")[0]} has not added a note.`}
-                            </p>
-                          </div>
-                        );
-                      }
-                      if (feeling?.kind === "legacy") {
-                        return (
-                          <div className="rounded-2xl border border-border/60 bg-card/80 p-4">
-                            <div className="flex items-center gap-1">
-                              {Array.from({ length: STAR_MAX }, (_, i) => {
-                                const active = i + 1 <= feeling.stars;
-                                return (
-                                  <Star
-                                    key={i}
-                                    className={cn(
-                                      "size-4",
-                                      active ? "text-amber-500" : "text-muted-foreground/30",
-                                    )}
-                                    strokeWidth={1.7}
-                                    fill={active ? "currentColor" : "none"}
-                                  />
-                                );
-                              })}
                             </div>
                             <p className="mt-2 text-[13px] text-muted-foreground">
                               {feeling.note.trim()

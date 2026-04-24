@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Star } from "lucide-react";
+import { Plus } from "lucide-react";
 import { MobileScreen } from "@/components/mobile/mobile-screen";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,75 +15,13 @@ import { useStore } from "@/lib/store";
 import { todayKey } from "@/lib/date";
 import { cn } from "@/lib/utils";
 
-const STAR_MAX = 5;
 const MOOD_MIN = 1;
 const MOOD_MAX = 10;
 const CHART_WIDTH = 340;
 const CHART_HEIGHT = 170;
 const CHART_PAD = 22;
 const JOURNAL_SAVED_TODAY_KEY = "duo.journal.saved.v1";
-
-function StarRow({
-  value,
-  onChange,
-  size = "lg",
-  readOnly = false,
-}: {
-  value: number;
-  onChange: (n: number) => void;
-  size?: "lg" | "sm";
-  readOnly?: boolean;
-}) {
-  const iconClass =
-    size === "lg" ? "size-9 sm:size-10" : "size-5 text-amber-500/90";
-  return (
-    <div
-      className={cn(
-        "flex items-center justify-center gap-1 sm:gap-1.5",
-        readOnly && "pointer-events-none",
-      )}
-    >
-      {Array.from({ length: STAR_MAX }, (_, i) => {
-        const n = i + 1;
-        const active = n <= value;
-        const star = (
-          <Star
-            className={iconClass}
-            strokeWidth={1.5}
-            fill={active ? "currentColor" : "none"}
-          />
-        );
-        if (readOnly) {
-          return (
-            <span
-              key={n}
-              className={cn(
-                "p-0.5",
-                active ? "text-amber-500" : "text-muted-foreground/35",
-              )}
-            >
-              {star}
-            </span>
-          );
-        }
-        return (
-          <button
-            key={n}
-            type="button"
-            aria-label={`${n} star${n === 1 ? "" : "s"}`}
-            className={cn(
-              "rounded-lg p-0.5 transition-transform active:scale-95",
-              active ? "text-amber-500" : "text-muted-foreground/35",
-            )}
-            onClick={() => onChange(n)}
-          >
-            {star}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
+const JOURNAL_SAVED_TODAY_DATA_KEY = "duo.journal.saved.data.v1";
 
 function formatHistoryDate(dateKey: string) {
   return new Date(`${dateKey}T12:00:00`).toLocaleDateString(undefined, {
@@ -108,33 +46,35 @@ function buildMoodPath(points: { x: number; y: number }[]) {
 }
 
 export default function JournalPage() {
-  const { state, saveDayExcitement, saveJournalEntry, createJournalUserBucket } =
+  const { state, saveJournalEntry, createJournalUserBucket } =
     useStore();
   const me = state.me!;
   const today = todayKey();
   const dailyPrompt = useMemo(() => getDailyJournalPrompt(me.id, today), [me.id, today]);
 
-  const todayEntry = useMemo(
-    () =>
-      state.dayExcitement.find((e) => e.userId === me.id && e.date === today),
-    [state.dayExcitement, me.id, today],
-  );
   const todayJournalEntry = useMemo(
     () =>
       state.journalEntries.find((e) => e.userId === me.id && e.date === today),
     [state.journalEntries, me.id, today],
   );
 
-  /** When false and today is saved, the big check-in card is collapsed. */
-  const [wantsToEdit, setWantsToEdit] = useState(false);
   const [wantsJournalEdit, setWantsJournalEdit] = useState(false);
-  const [savedTodayOverride, setSavedTodayOverride] = useState(false);
+  const [savedTodayData, setSavedTodayData] = useState<{
+    mood: number;
+    reflection: string;
+    causeBuckets: string[];
+  } | null>(null);
 
-  const formCollapsed = Boolean(todayEntry) && !wantsToEdit;
-  const hasSavedJournalToday = Boolean(todayJournalEntry) || savedTodayOverride;
+  const todayDisplayEntry = todayJournalEntry
+    ? {
+        mood: todayJournalEntry.mood,
+        reflection: todayJournalEntry.reflection,
+        causeBuckets: todayJournalEntry.causeBuckets,
+      }
+    : savedTodayData;
+  const hasSavedJournalToday = Boolean(todayDisplayEntry);
   const showJournalFocusMode = !hasSavedJournalToday || wantsJournalEdit;
 
-  const [draft, setDraft] = useState({ stars: 0, note: "" });
   const [journalDraft, setJournalDraft] = useState({
     mood: 6,
     reflection: "",
@@ -147,20 +87,6 @@ export default function JournalPage() {
   const [isComposingReflection, setIsComposingReflection] = useState(false);
   const [suppressNextAutoExpand, setSuppressNextAutoExpand] = useState(false);
 
-  const historyEntries = useMemo(() => {
-    const list = [...(state.dayExcitement ?? [])].filter(
-      (e) => e.userId === me.id,
-    );
-    const filtered =
-      wantsToEdit && todayEntry
-        ? list.filter((e) => e.date !== today)
-        : list;
-    return filtered.sort((a, b) => {
-      const byDate = b.date.localeCompare(a.date);
-      if (byDate !== 0) return byDate;
-      return b.savedAt.localeCompare(a.savedAt);
-    });
-  }, [state.dayExcitement, me.id, today, wantsToEdit, todayEntry]);
   const journalHistory = useMemo(() => {
     const list = [...(state.journalEntries ?? [])].filter((e) => e.userId === me.id);
     const filtered =
@@ -173,7 +99,6 @@ export default function JournalPage() {
       return b.savedAt.localeCompare(a.savedAt);
     });
   }, [state.journalEntries, me.id, today, wantsJournalEdit, todayJournalEntry]);
-
   const moodSeries = useMemo(() => {
     return [...(state.journalEntries ?? [])]
       .filter((e) => e.userId === me.id)
@@ -199,7 +124,6 @@ export default function JournalPage() {
     return sortBucketsByRecency(combined, state.journalUserBuckets ?? []);
   }, [state.journalUserBuckets]);
 
-  const canSave = draft.stars >= 1 && draft.stars <= STAR_MAX;
   const canSaveJournal =
     journalDraft.mood >= MOOD_MIN &&
     journalDraft.mood <= MOOD_MAX &&
@@ -210,20 +134,62 @@ export default function JournalPage() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const key = `${JOURNAL_SAVED_TODAY_KEY}:${me.id}:${today}`;
+    const dataKey = `${JOURNAL_SAVED_TODAY_DATA_KEY}:${me.id}:${today}`;
     if (todayJournalEntry) {
-      queueMicrotask(() => setSavedTodayOverride(true));
+      queueMicrotask(() =>
+        setSavedTodayData({
+          mood: todayJournalEntry.mood,
+          reflection: todayJournalEntry.reflection,
+          causeBuckets: todayJournalEntry.causeBuckets,
+        }),
+      );
       try {
         window.localStorage.setItem(key, "1");
+        window.localStorage.setItem(
+          dataKey,
+          JSON.stringify({
+            mood: todayJournalEntry.mood,
+            reflection: todayJournalEntry.reflection,
+            causeBuckets: todayJournalEntry.causeBuckets,
+          }),
+        );
       } catch {
         // ignore write failures
       }
       return;
     }
     try {
-      const hasSaved = window.localStorage.getItem(key) === "1";
-      queueMicrotask(() => setSavedTodayOverride(hasSaved));
+      const raw = window.localStorage.getItem(dataKey);
+      let parsedData: { mood: number; reflection: string; causeBuckets: string[] } | null =
+        null;
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<{
+          mood: number;
+          reflection: string;
+          causeBuckets: string[];
+        }>;
+        if (
+          typeof parsed.mood === "number" &&
+          typeof parsed.reflection === "string" &&
+          Array.isArray(parsed.causeBuckets)
+        ) {
+          parsedData = {
+            mood: Math.min(10, Math.max(1, Math.round(parsed.mood))),
+            reflection: parsed.reflection,
+            causeBuckets: parsed.causeBuckets
+              .map((bucket) => String(bucket).trim())
+              .filter(Boolean)
+              .slice(0, 4),
+          };
+        }
+      }
+      if (parsedData) {
+        queueMicrotask(() => setSavedTodayData(parsedData));
+      } else {
+        queueMicrotask(() => setSavedTodayData(null));
+      }
     } catch {
-      queueMicrotask(() => setSavedTodayOverride(false));
+      queueMicrotask(() => setSavedTodayData(null));
     }
   }, [me.id, today, todayJournalEntry]);
 
@@ -242,17 +208,6 @@ export default function JournalPage() {
     };
   }, [isComposingReflection]);
 
-  const handleSave = () => {
-    if (!canSave) return;
-    void (async () => {
-      try {
-        await saveDayExcitement({ stars: draft.stars, note: draft.note });
-        setWantsToEdit(false);
-      } catch {
-        /* toast optional */
-      }
-    })();
-  };
   const handleSaveJournal = () => {
     if (!canSaveJournal) return;
     void (async () => {
@@ -265,12 +220,21 @@ export default function JournalPage() {
           reflection: journalDraft.reflection,
           causeBuckets: journalDraft.causeBuckets,
         });
-        setSavedTodayOverride(true);
+        const payload = {
+          mood: journalDraft.mood,
+          reflection: journalDraft.reflection.trim(),
+          causeBuckets: journalDraft.causeBuckets,
+        };
+        setSavedTodayData(payload);
         if (typeof window !== "undefined") {
           try {
             window.localStorage.setItem(
               `${JOURNAL_SAVED_TODAY_KEY}:${me.id}:${today}`,
               "1",
+            );
+            window.localStorage.setItem(
+              `${JOURNAL_SAVED_TODAY_DATA_KEY}:${me.id}:${today}`,
+              JSON.stringify(payload),
             );
           } catch {
             // ignore write failures
@@ -307,13 +271,6 @@ export default function JournalPage() {
     })();
   };
 
-  const startEditing = () => {
-    setDraft({
-      stars: todayEntry?.stars ?? 0,
-      note: todayEntry?.note ?? "",
-    });
-    setWantsToEdit(true);
-  };
   return (
     <MobileScreen
       eyebrow="Journal"
@@ -583,149 +540,52 @@ export default function JournalPage() {
         </>
       ) : null}
 
-      {!showJournalFocusMode && !formCollapsed ? (
-        <section className="mt-4 rounded-2xl border border-border/60 bg-card/80 p-4">
-          <p className="text-center text-[13px] font-semibold leading-snug">
-            How excited are you about the day?
-          </p>
-          <div className="mt-3">
-            <StarRow
-              value={draft.stars}
-              onChange={(stars) => setDraft((prev) => ({ ...prev, stars }))}
-            />
-          </div>
-          <label className="mt-4 block">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-              Note (optional)
-            </span>
-            <textarea
-              className="mt-1.5 min-h-[88px] w-full resize-y rounded-xl border border-border/80 bg-background/80 px-3 py-2 text-[14px] leading-relaxed outline-none ring-offset-background placeholder:text-muted-foreground/60 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
-              placeholder="Anything on your mind…"
-              value={draft.note}
-              onChange={(e) =>
-                setDraft((prev) => ({ ...prev, note: e.target.value }))
-              }
-              maxLength={2000}
-            />
-          </label>
-          <Button
-            type="button"
-            className="mt-3 w-full"
-            disabled={!canSave}
-            onClick={handleSave}
-          >
-            Save today
-          </Button>
-        </section>
-      ) : !showJournalFocusMode ? (
-        <section className="mt-4 rounded-2xl border border-border/60 bg-card/80 p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                Today
-              </p>
-              <div className="mt-2 flex justify-start">
-                {todayEntry ? (
-                  <StarRow
-                    value={todayEntry.stars}
-                    onChange={() => {}}
-                    size="sm"
-                    readOnly
-                  />
-                ) : null}
-              </div>
-              {todayEntry?.note ? (
-                <p className="mt-2 line-clamp-3 text-[14px] leading-snug text-foreground">
-                  {todayEntry.note}
-                </p>
-              ) : (
-                <p className="mt-2 text-[13px] italic text-muted-foreground">
-                  No note
-                </p>
-              )}
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="shrink-0"
-              onClick={startEditing}
-            >
-              Edit
-            </Button>
-          </div>
-        </section>
-      ) : null}
-
       {!showJournalFocusMode ? (
-      <section className="mt-5">
-        <h2 className="mb-2 px-0.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-          History
-        </h2>
-        {historyEntries.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-border bg-card/60 p-6 text-center">
-            <p className="text-[14px] font-semibold">Nothing here yet</p>
-            <p className="mt-1 text-[12px] text-muted-foreground">
-              Save how you feel today — it will show up in this list.
-            </p>
-          </div>
-        ) : (
-          <ul className="flex flex-col gap-2.5">
-            {historyEntries.map((e) => (
-              <li
-                key={e.id}
-                className="rounded-2xl border border-border/60 bg-card/80 px-4 py-3.5"
-                aria-label={`${e.stars} out of ${STAR_MAX} stars`}
-              >
-                <div className="flex justify-center py-1">
-                  <StarRow
-                    value={e.stars}
-                    onChange={() => {}}
-                    size="sm"
-                    readOnly
-                  />
-                </div>
-                {e.note ? (
-                  <p className="mt-2 text-[15px] font-medium leading-snug text-foreground">
-                    {e.note}
-                  </p>
-                ) : (
-                  <p className="mt-2 text-[13px] italic text-muted-foreground">
-                    No note
-                  </p>
-                )}
-                <p className="mt-2.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                  {formatHistoryDate(e.date)}
-                </p>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-      ) : null}
-
-      {!showJournalFocusMode && journalHistory.length > 0 ? (
         <section className="mt-5">
           <h2 className="mb-2 px-0.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
             Journal history
           </h2>
-          <ul className="flex flex-col gap-2.5">
-            {journalHistory.slice(0, 12).map((entry) => (
-              <li
-                key={entry.id}
-                className="rounded-2xl border border-border/60 bg-card/80 px-4 py-3.5"
-              >
-                <p className="text-[12px] font-semibold text-primary">Mood {entry.mood}/10</p>
-                <p className="mt-1 text-[14px] leading-snug">{entry.reflection}</p>
+          {todayDisplayEntry ? (
+            <div className="mb-2.5 rounded-2xl border border-border/60 bg-card/80 px-4 py-3.5">
+              <p className="text-[12px] font-semibold text-primary">
+                Mood {todayDisplayEntry.mood}/10
+              </p>
+              <p className="mt-1 text-[14px] leading-snug">
+                {todayDisplayEntry.reflection || "No sentence saved."}
+              </p>
+              {todayDisplayEntry.causeBuckets.length > 0 ? (
                 <p className="mt-2 text-[11px] text-muted-foreground">
-                  {entry.causeBuckets.join(" • ")}
+                  {todayDisplayEntry.causeBuckets.join(" • ")}
                 </p>
-                <p className="mt-2.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                  {formatHistoryDate(entry.date)}
-                </p>
-              </li>
-            ))}
-          </ul>
+              ) : null}
+            </div>
+          ) : null}
+          {journalHistory.length > 0 ? (
+            <ul className="flex flex-col gap-2.5">
+              {journalHistory.slice(0, 12).map((entry) => (
+                <li
+                  key={entry.id}
+                  className="rounded-2xl border border-border/60 bg-card/80 px-4 py-3.5"
+                >
+                  <p className="text-[12px] font-semibold text-primary">Mood {entry.mood}/10</p>
+                  <p className="mt-1 text-[14px] leading-snug">{entry.reflection}</p>
+                  <p className="mt-2 text-[11px] text-muted-foreground">
+                    {entry.causeBuckets.join(" • ")}
+                  </p>
+                  <p className="mt-2.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                    {formatHistoryDate(entry.date)}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="rounded-2xl border border-dashed border-border bg-card/60 p-6 text-center">
+              <p className="text-[14px] font-semibold">Nothing here yet</p>
+              <p className="mt-1 text-[12px] text-muted-foreground">
+                Save today&apos;s check-in to build your history.
+              </p>
+            </div>
+          )}
         </section>
       ) : null}
         </>
