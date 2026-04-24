@@ -48,14 +48,15 @@ function buildMoodPath(points: { x: number; y: number }[]) {
 export default function JournalPage() {
   const { state, saveJournalEntry, createJournalUserBucket } =
     useStore();
-  const me = state.me!;
+  const me = state.me;
   const today = todayKey();
-  const dailyPrompt = useMemo(() => getDailyJournalPrompt(me.id, today), [me.id, today]);
+  const meId = me?.id ?? "";
+  const dailyPrompt = useMemo(() => getDailyJournalPrompt(meId || "anon", today), [meId, today]);
 
   const todayJournalEntry = useMemo(
     () =>
-      state.journalEntries.find((e) => e.userId === me.id && e.date === today),
-    [state.journalEntries, me.id, today],
+      state.journalEntries.find((e) => e.userId === meId && e.date === today),
+    [state.journalEntries, meId, today],
   );
 
   const [wantsJournalEdit, setWantsJournalEdit] = useState(false);
@@ -65,14 +66,7 @@ export default function JournalPage() {
     causeBuckets: string[];
   } | null>(null);
 
-  const todayDisplayEntry = todayJournalEntry
-    ? {
-        mood: todayJournalEntry.mood,
-        reflection: todayJournalEntry.reflection,
-        causeBuckets: todayJournalEntry.causeBuckets,
-      }
-    : savedTodayData;
-  const hasSavedJournalToday = Boolean(todayDisplayEntry);
+  const hasSavedJournalToday = Boolean(todayJournalEntry || savedTodayData);
   const showJournalFocusMode = !hasSavedJournalToday || wantsJournalEdit;
 
   const [journalDraft, setJournalDraft] = useState({
@@ -88,7 +82,7 @@ export default function JournalPage() {
   const [suppressNextAutoExpand, setSuppressNextAutoExpand] = useState(false);
 
   const journalHistory = useMemo(() => {
-    const list = [...(state.journalEntries ?? [])].filter((e) => e.userId === me.id);
+    const list = [...(state.journalEntries ?? [])].filter((e) => e.userId === meId);
     const filtered =
       wantsJournalEdit && todayJournalEntry
         ? list.filter((e) => e.date !== today)
@@ -98,13 +92,13 @@ export default function JournalPage() {
       if (byDate !== 0) return byDate;
       return b.savedAt.localeCompare(a.savedAt);
     });
-  }, [state.journalEntries, me.id, today, wantsJournalEdit, todayJournalEntry]);
+  }, [state.journalEntries, meId, today, wantsJournalEdit, todayJournalEntry]);
   const moodSeries = useMemo(() => {
     return [...(state.journalEntries ?? [])]
-      .filter((e) => e.userId === me.id)
+      .filter((e) => e.userId === meId)
       .sort((a, b) => a.date.localeCompare(b.date))
       .slice(-45);
-  }, [state.journalEntries, me.id]);
+  }, [state.journalEntries, meId]);
 
   const chartPoints = useMemo(() => {
     if (!moodSeries.length) return [];
@@ -133,8 +127,9 @@ export default function JournalPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const key = `${JOURNAL_SAVED_TODAY_KEY}:${me.id}:${today}`;
-    const dataKey = `${JOURNAL_SAVED_TODAY_DATA_KEY}:${me.id}:${today}`;
+    if (!meId) return;
+    const key = `${JOURNAL_SAVED_TODAY_KEY}:${meId}:${today}`;
+    const dataKey = `${JOURNAL_SAVED_TODAY_DATA_KEY}:${meId}:${today}`;
     if (todayJournalEntry) {
       queueMicrotask(() =>
         setSavedTodayData({
@@ -191,7 +186,7 @@ export default function JournalPage() {
     } catch {
       queueMicrotask(() => setSavedTodayData(null));
     }
-  }, [me.id, today, todayJournalEntry]);
+  }, [meId, today, todayJournalEntry]);
 
   useEffect(() => {
     if (!isComposingReflection) return;
@@ -229,11 +224,11 @@ export default function JournalPage() {
         if (typeof window !== "undefined") {
           try {
             window.localStorage.setItem(
-              `${JOURNAL_SAVED_TODAY_KEY}:${me.id}:${today}`,
+              `${JOURNAL_SAVED_TODAY_KEY}:${meId}:${today}`,
               "1",
             );
             window.localStorage.setItem(
-              `${JOURNAL_SAVED_TODAY_DATA_KEY}:${me.id}:${today}`,
+              `${JOURNAL_SAVED_TODAY_DATA_KEY}:${meId}:${today}`,
               JSON.stringify(payload),
             );
           } catch {
@@ -287,14 +282,14 @@ export default function JournalPage() {
         </Button>
       }
     >
-      {showMoodTrend ? (
+      {!me ? (
+        <section className="mt-1 rounded-2xl border border-border/60 bg-card/80 p-4">
+          <p className="text-[13px] text-muted-foreground">Loading your journal...</p>
+        </section>
+      ) : null}
+      {me ? (
+      showMoodTrend ? (
         <section className="mt-1 rounded-2xl border border-border/60 bg-card/90 p-4">
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-              Mood trend
-            </h2>
-            <p className="text-[11px] text-muted-foreground">Last {moodSeries.length} entries</p>
-          </div>
           {chartPoints.length < 2 ? (
             <div className="rounded-xl border border-dashed border-border bg-background/40 p-5 text-center">
               <p className="text-[14px] font-semibold">Add at least two check-ins</p>
@@ -545,38 +540,103 @@ export default function JournalPage() {
           <h2 className="mb-2 px-0.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
             Journal history
           </h2>
-          {todayDisplayEntry ? (
-            <div className="mb-2.5 rounded-2xl border border-border/60 bg-card/80 px-4 py-3.5">
-              <p className="text-[12px] font-semibold text-primary">
-                Mood {todayDisplayEntry.mood}/10
-              </p>
-              <p className="mt-1 text-[14px] leading-snug">
-                {todayDisplayEntry.reflection || "No sentence saved."}
-              </p>
-              {todayDisplayEntry.causeBuckets.length > 0 ? (
-                <p className="mt-2 text-[11px] text-muted-foreground">
-                  {todayDisplayEntry.causeBuckets.join(" • ")}
-                </p>
-              ) : null}
-            </div>
-          ) : null}
           {journalHistory.length > 0 ? (
             <ul className="flex flex-col gap-2.5">
               {journalHistory.slice(0, 12).map((entry) => (
                 <li
                   key={entry.id}
-                  className="rounded-2xl border border-border/60 bg-card/80 px-4 py-3.5"
+                  className="transition-all"
                 >
-                  <p className="text-[12px] font-semibold text-primary">Mood {entry.mood}/10</p>
-                  <p className="mt-1 text-[14px] leading-snug">{entry.reflection}</p>
-                  <p className="mt-2 text-[11px] text-muted-foreground">
-                    {entry.causeBuckets.join(" • ")}
-                  </p>
-                  <p className="mt-2.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                    {formatHistoryDate(entry.date)}
-                  </p>
+                  <div className="group relative w-full overflow-hidden rounded-2xl border border-border/60 bg-background/55 p-3 text-left transition-all hover:border-foreground/20 hover:shadow-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                        Mood
+                      </span>
+                      <span className="text-[14px] font-semibold text-foreground">
+                        {entry.mood}/10
+                      </span>
+                    </div>
+                    <div className="mt-2">
+                      <div className="h-2 w-full overflow-hidden rounded-full bg-muted/70">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-rose-400 via-amber-400 to-emerald-500 transition-all duration-500"
+                          style={{
+                            width: `${Math.max(0, Math.min(100, (entry.mood / 10) * 100))}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                    <span className="mt-2.5 block text-[13px] leading-snug text-foreground/90">
+                      {entry.reflection || "No sentence saved."}
+                    </span>
+                    {entry.causeBuckets.length > 0 ? (
+                      <span className="mt-2 flex items-center justify-between gap-2">
+                        <span className="flex flex-wrap gap-1.5">
+                          {entry.causeBuckets.map((bucket) => (
+                            <span
+                              key={`${entry.id}-${bucket}`}
+                              className="rounded-full border border-border/60 bg-background/70 px-2 py-0.5 text-[10px] text-muted-foreground"
+                            >
+                              {bucket}
+                            </span>
+                          ))}
+                        </span>
+                        <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                          {formatHistoryDate(entry.date)}
+                        </span>
+                      </span>
+                    ) : null}
+                  </div>
                 </li>
               ))}
+            </ul>
+          ) : savedTodayData ? (
+            <ul className="flex flex-col gap-2.5">
+              <li className="transition-all">
+                <div className="group relative w-full overflow-hidden rounded-2xl border border-border/60 bg-background/55 p-3 text-left transition-all hover:border-foreground/20 hover:shadow-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                      Mood
+                    </span>
+                    <span className="text-[14px] font-semibold text-foreground">
+                      {savedTodayData.mood}/10
+                    </span>
+                  </div>
+                  <div className="mt-2">
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-muted/70">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-rose-400 via-amber-400 to-emerald-500 transition-all duration-500"
+                        style={{
+                          width: `${Math.max(
+                            0,
+                            Math.min(100, (savedTodayData.mood / 10) * 100),
+                          )}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <span className="mt-2.5 block text-[13px] leading-snug text-foreground/90">
+                    {savedTodayData.reflection || "No sentence saved."}
+                  </span>
+                  {savedTodayData.causeBuckets.length > 0 ? (
+                    <span className="mt-2 flex items-center justify-between gap-2">
+                      <span className="flex flex-wrap gap-1.5">
+                        {savedTodayData.causeBuckets.map((bucket) => (
+                          <span
+                            key={`saved-${bucket}`}
+                            className="rounded-full border border-border/60 bg-background/70 px-2 py-0.5 text-[10px] text-muted-foreground"
+                          >
+                            {bucket}
+                          </span>
+                        ))}
+                      </span>
+                      <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                        {formatHistoryDate(today)}
+                      </span>
+                    </span>
+                  ) : null}
+                </div>
+              </li>
             </ul>
           ) : (
             <div className="rounded-2xl border border-dashed border-border bg-card/60 p-6 text-center">
@@ -589,7 +649,8 @@ export default function JournalPage() {
         </section>
       ) : null}
         </>
-      )}
+      )
+      ) : null}
     </MobileScreen>
   );
 }

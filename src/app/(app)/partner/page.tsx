@@ -154,23 +154,29 @@ export default function PartnerPage() {
                       const feeling = partnerFeelingByDate.get(date);
                       if (feeling) {
                         return (
-                          <div className="rounded-2xl border border-border/60 bg-card/80 p-4">
-                            <div className="flex items-center justify-between gap-2 text-[12px]">
-                              <span className="font-medium text-muted-foreground">Mood</span>
-                              <span className="font-semibold">{feeling.mood}/10</span>
+                          <div className="group relative w-full overflow-hidden rounded-2xl border border-border/60 bg-background/55 p-3 text-left transition-all hover:border-foreground/20 hover:shadow-sm">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                                Mood
+                              </span>
+                              <span className="text-[14px] font-semibold text-foreground">
+                                {feeling.mood}/10
+                              </span>
                             </div>
-                            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-muted/70">
-                              <div
-                                className="h-full rounded-full bg-gradient-to-r from-rose-400 via-amber-400 to-emerald-500"
-                                style={{
-                                  width: `${Math.max(
-                                    0,
-                                    Math.min(100, (feeling.mood / 10) * 100),
-                                  )}%`,
-                                }}
-                              />
+                            <div className="mt-2">
+                              <div className="h-2 w-full overflow-hidden rounded-full bg-muted/70">
+                                <div
+                                  className="h-full rounded-full bg-gradient-to-r from-rose-400 via-amber-400 to-emerald-500 transition-all duration-500"
+                                  style={{
+                                    width: `${Math.max(
+                                      0,
+                                      Math.min(100, (feeling.mood / 10) * 100),
+                                    )}%`,
+                                  }}
+                                />
+                              </div>
                             </div>
-                            <p className="mt-2 text-[13px] text-muted-foreground">
+                            <p className="mt-2.5 text-[13px] leading-snug text-foreground/90">
                               {feeling.note.trim()
                                 ? feeling.note
                                 : `${partner.name.split(" ")[0]} has not added a note.`}
