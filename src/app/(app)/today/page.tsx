@@ -38,9 +38,9 @@ export default function TodayPage() {
   ).length;
   const totalHabits = myHabits.length;
   const [showAllDoneCelebration, setShowAllDoneCelebration] = useState(false);
-  const [overlayRoot, setOverlayRoot] = useState<HTMLElement | null>(null);
   const previousDoneCountRef = useRef(doneCount);
   const previousTotalHabitsRef = useRef(totalHabits);
+  const overlayRootRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     const wasDone =
@@ -60,13 +60,12 @@ export default function TodayPage() {
     return () => window.clearTimeout(timeout);
   }, [showAllDoneCelebration]);
 
-  useEffect(() => {
-    if (typeof document === "undefined") return;
-    setOverlayRoot(document.getElementById("app-shell-overlay-root"));
-  }, []);
+  if (!overlayRootRef.current && typeof document !== "undefined") {
+    overlayRootRef.current = document.getElementById("app-shell-overlay-root");
+  }
 
   const celebrationOverlay =
-    overlayRoot && showAllDoneCelebration
+    overlayRootRef.current && showAllDoneCelebration
       ? createPortal(
           <AnimatePresence>
             <motion.div
@@ -109,7 +108,7 @@ export default function TodayPage() {
               </motion.div>
             </motion.div>
           </AnimatePresence>,
-          overlayRoot,
+          overlayRootRef.current,
         )
       : null;
 
