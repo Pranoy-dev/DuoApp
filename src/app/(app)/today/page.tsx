@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { createPortal } from "react-dom";
 import { Plus } from "lucide-react";
@@ -59,10 +59,10 @@ export default function TodayPage() {
     return () => window.clearTimeout(timeout);
   }, [showAllDoneCelebration]);
 
-  const overlayRoot = useMemo(() => {
-    if (typeof document === "undefined") return null;
-    return document.getElementById("app-shell-overlay-root");
-  }, []);
+  const overlayRoot =
+    typeof document === "undefined"
+      ? null
+      : document.getElementById("app-shell-overlay-root");
 
   const celebrationOverlay =
     overlayRoot && showAllDoneCelebration
