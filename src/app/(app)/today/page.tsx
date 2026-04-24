@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
 import { MobileScreen } from "@/components/mobile/mobile-screen";
@@ -35,11 +36,78 @@ export default function TodayPage() {
     ),
   ).length;
   const totalHabits = myHabits.length;
+  const [showAllDoneCelebration, setShowAllDoneCelebration] = useState(false);
+  const previousDoneCountRef = useRef(doneCount);
+  const previousTotalHabitsRef = useRef(totalHabits);
+
+  useEffect(() => {
+    const wasDone =
+      previousTotalHabitsRef.current > 0 &&
+      previousDoneCountRef.current === previousTotalHabitsRef.current;
+    const isDone = totalHabits > 0 && doneCount === totalHabits;
+    if (!wasDone && isDone) {
+      setShowAllDoneCelebration(true);
+    }
+    previousDoneCountRef.current = doneCount;
+    previousTotalHabitsRef.current = totalHabits;
+  }, [doneCount, totalHabits]);
+
+  useEffect(() => {
+    if (!showAllDoneCelebration) return;
+    const timeout = window.setTimeout(() => setShowAllDoneCelebration(false), 1550);
+    return () => window.clearTimeout(timeout);
+  }, [showAllDoneCelebration]);
+
   return (
     <MobileScreen
       eyebrow={humanDate()}
       title={me.name.split(" ")[0] ?? me.name}
       trailing={<AddHabitButton onAdd={addHabit} />}
+      overlay={
+        <AnimatePresence>
+          {showAllDoneCelebration ? (
+            <motion.div
+              aria-hidden
+              className="pointer-events-none absolute inset-0 z-[70] flex items-center justify-center"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.22, ease: "easeOut" }}
+            >
+              <motion.div
+                className="relative flex h-full w-full items-center justify-center overflow-hidden bg-gradient-to-br from-emerald-500/92 via-lime-400/88 to-yellow-300/82 px-8 text-center backdrop-blur-md"
+                initial={{ scale: 0.96, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 1.02, opacity: 0 }}
+                transition={{ type: "spring", stiffness: 360, damping: 24, mass: 0.82 }}
+              >
+                <motion.span
+                  className="pointer-events-none absolute inset-0 bg-gradient-to-r from-transparent via-white/45 to-transparent"
+                  initial={{ x: "-130%" }}
+                  animate={{ x: "190%" }}
+                  transition={{ duration: 0.95, ease: "easeInOut" }}
+                />
+                <div className="relative rounded-3xl border border-white/45 bg-white/25 px-8 py-7 shadow-[0_22px_70px_-28px_rgba(15,23,42,0.6)]">
+                  <motion.div
+                    className="mx-auto mb-2 flex size-14 items-center justify-center rounded-full bg-white/90 text-3xl shadow-sm"
+                    initial={{ scale: 0.6, rotate: -18, opacity: 0 }}
+                    animate={{ scale: [0.8, 1.14, 1], rotate: [0, 8, 0], opacity: 1 }}
+                    transition={{ duration: 0.55, ease: "easeOut" }}
+                  >
+                    ✅
+                  </motion.div>
+                  <p className="text-[14px] font-semibold uppercase tracking-[0.24em] text-emerald-950/80">
+                    All done
+                  </p>
+                  <p className="mt-1 text-[17px] font-semibold text-emerald-950">
+                    Perfect run today
+                  </p>
+                </div>
+              </motion.div>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
+      }
     >
       <section>
         <header className="mb-2 flex items-baseline justify-between px-0.5">

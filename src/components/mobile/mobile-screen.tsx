@@ -5,6 +5,7 @@ type Props = {
   eyebrow?: string;
   trailing?: React.ReactNode;
   children: React.ReactNode;
+  overlay?: React.ReactNode;
   className?: string;
   scroll?: boolean;
 };
@@ -14,11 +15,12 @@ export function MobileScreen({
   eyebrow,
   trailing,
   children,
+  overlay,
   className,
   scroll = true,
 }: Props) {
   return (
-    <div className={cn("flex h-full flex-col", className)}>
+    <div className={cn("relative flex h-full flex-col", className)}>
       {(title || eyebrow || trailing) && (
         <header
           className="safe-x flex items-end justify-between gap-3 pb-3"
@@ -54,6 +56,7 @@ export function MobileScreen({
         {children}
         <div className="h-4 shrink-0" aria-hidden />
       </div>
+      {overlay}
     </div>
   );
 }

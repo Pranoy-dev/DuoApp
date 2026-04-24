@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Plus } from "lucide-react";
+import { Check, Plus } from "lucide-react";
 import { MobileScreen } from "@/components/mobile/mobile-screen";
 import { Button } from "@/components/ui/button";
 import {
@@ -60,6 +60,7 @@ export default function JournalPage() {
   );
 
   const [wantsJournalEdit, setWantsJournalEdit] = useState(false);
+  const [editingDate, setEditingDate] = useState<string | null>(null);
   const [savedTodayData, setSavedTodayData] = useState<{
     mood: number;
     reflection: string;
@@ -80,6 +81,8 @@ export default function JournalPage() {
   const [showMoodTrend, setShowMoodTrend] = useState(false);
   const [isComposingReflection, setIsComposingReflection] = useState(false);
   const [suppressNextAutoExpand, setSuppressNextAutoExpand] = useState(false);
+  const [isSavingJournal, setIsSavingJournal] = useState(false);
+  const [showSavedTick, setShowSavedTick] = useState(false);
 
   const journalHistory = useMemo(() => {
     const list = [...(state.journalEntries ?? [])].filter((e) => e.userId === meId);
@@ -203,12 +206,20 @@ export default function JournalPage() {
     };
   }, [isComposingReflection]);
 
+  useEffect(() => {
+    if (!showSavedTick) return;
+    const timeout = window.setTimeout(() => setShowSavedTick(false), 1200);
+    return () => window.clearTimeout(timeout);
+  }, [showSavedTick]);
+
   const handleSaveJournal = () => {
-    if (!canSaveJournal) return;
+    if (!canSaveJournal || isSavingJournal) return;
+    setIsSavingJournal(true);
     void (async () => {
       try {
+        const targetDate = editingDate ?? today;
         await saveJournalEntry({
-          date: today,
+          date: targetDate,
           mood: journalDraft.mood,
           promptId: dailyPrompt.id,
           promptText: dailyPrompt.text,
@@ -220,8 +231,10 @@ export default function JournalPage() {
           reflection: journalDraft.reflection.trim(),
           causeBuckets: journalDraft.causeBuckets,
         };
-        setSavedTodayData(payload);
-        if (typeof window !== "undefined") {
+        if (targetDate === today) {
+          setSavedTodayData(payload);
+        }
+        if (typeof window !== "undefined" && targetDate === today) {
           try {
             window.localStorage.setItem(
               `${JOURNAL_SAVED_TODAY_KEY}:${meId}:${today}`,
@@ -235,11 +248,34 @@ export default function JournalPage() {
             // ignore write failures
           }
         }
+        setEditingDate(null);
         setWantsJournalEdit(false);
+        setShowSavedTick(true);
       } catch {
         /* toast optional */
+      } finally {
+        setIsSavingJournal(false);
       }
     })();
+  };
+  const startEditingEntry = (entry: {
+    date: string;
+    mood: number;
+    reflection: string;
+    causeBuckets: string[];
+  }) => {
+    setJournalDraft({
+      mood: Math.min(10, Math.max(1, Math.round(entry.mood))),
+      reflection: entry.reflection ?? "",
+      causeBuckets: entry.causeBuckets.length ? entry.causeBuckets.slice(0, 4) : ["Random"],
+    });
+    setBucketTouched(true);
+    setEditingDate(entry.date);
+    setWantsJournalEdit(true);
+    setIsComposingReflection(false);
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
   };
   const handleCreateBucket = () => {
     if (!canAddCustomBucket) return;
@@ -525,11 +561,32 @@ export default function JournalPage() {
           </div>
           <Button
             type="button"
-            className="mt-4 h-11 w-full rounded-xl text-[13px] font-semibold"
-            disabled={!canSaveJournal}
+            className={cn(
+              "mt-4 h-11 w-full rounded-xl text-[13px] font-semibold transition-all duration-200",
+              showSavedTick && "bg-emerald-600 text-white hover:bg-emerald-600",
+            )}
+            disabled={!canSaveJournal || isSavingJournal}
             onClick={handleSaveJournal}
           >
-            Check-in
+            <span
+              className={cn(
+                "inline-flex items-center gap-1.5 transition-all duration-200",
+                showSavedTick ? "scale-100 opacity-100" : "scale-95 opacity-95",
+              )}
+            >
+              {showSavedTick ? (
+                <>
+                  <Check className="size-4 animate-in zoom-in-75 duration-200" />
+                  Saved
+                </>
+              ) : isSavingJournal ? (
+                "Saving..."
+              ) : editingDate ? (
+                "Save changes"
+              ) : (
+                "Check-in"
+              )}
+            </span>
           </Button>
         </section>
         </>
@@ -547,7 +604,18 @@ export default function JournalPage() {
                   key={entry.id}
                   className="transition-all"
                 >
-                  <div className="group relative w-full overflow-hidden rounded-2xl border border-border/60 bg-background/55 p-3 text-left transition-all hover:border-foreground/20 hover:shadow-sm">
+                  <button
+                    type="button"
+                    className="group relative w-full overflow-hidden rounded-2xl border border-border/60 bg-background/55 p-3 text-left transition-all hover:border-foreground/20 hover:shadow-sm"
+                    onClick={() =>
+                      startEditingEntry({
+                        date: entry.date,
+                        mood: entry.mood,
+                        reflection: entry.reflection,
+                        causeBuckets: entry.causeBuckets,
+                      })
+                    }
+                  >
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                         Mood
@@ -586,14 +654,25 @@ export default function JournalPage() {
                         </span>
                       </span>
                     ) : null}
-                  </div>
+                  </button>
                 </li>
               ))}
             </ul>
           ) : savedTodayData ? (
             <ul className="flex flex-col gap-2.5">
               <li className="transition-all">
-                <div className="group relative w-full overflow-hidden rounded-2xl border border-border/60 bg-background/55 p-3 text-left transition-all hover:border-foreground/20 hover:shadow-sm">
+                <button
+                  type="button"
+                  className="group relative w-full overflow-hidden rounded-2xl border border-border/60 bg-background/55 p-3 text-left transition-all hover:border-foreground/20 hover:shadow-sm"
+                  onClick={() =>
+                    startEditingEntry({
+                      date: today,
+                      mood: savedTodayData.mood,
+                      reflection: savedTodayData.reflection,
+                      causeBuckets: savedTodayData.causeBuckets,
+                    })
+                  }
+                >
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                       Mood
@@ -635,7 +714,7 @@ export default function JournalPage() {
                       </span>
                     </span>
                   ) : null}
-                </div>
+                </button>
               </li>
             </ul>
           ) : (
