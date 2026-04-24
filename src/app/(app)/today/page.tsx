@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { createPortal } from "react-dom";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
 import { MobileScreen } from "@/components/mobile/mobile-screen";
@@ -37,6 +38,7 @@ export default function TodayPage() {
   ).length;
   const totalHabits = myHabits.length;
   const [showAllDoneCelebration, setShowAllDoneCelebration] = useState(false);
+  const [overlayRoot, setOverlayRoot] = useState<HTMLElement | null>(null);
   const previousDoneCountRef = useRef(doneCount);
   const previousTotalHabitsRef = useRef(totalHabits);
 
@@ -58,14 +60,15 @@ export default function TodayPage() {
     return () => window.clearTimeout(timeout);
   }, [showAllDoneCelebration]);
 
-  return (
-    <MobileScreen
-      eyebrow={humanDate()}
-      title={me.name.split(" ")[0] ?? me.name}
-      trailing={<AddHabitButton onAdd={addHabit} />}
-      overlay={
-        <AnimatePresence>
-          {showAllDoneCelebration ? (
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    setOverlayRoot(document.getElementById("app-shell-overlay-root"));
+  }, []);
+
+  const celebrationOverlay =
+    overlayRoot && showAllDoneCelebration
+      ? createPortal(
+          <AnimatePresence>
             <motion.div
               aria-hidden
               className="pointer-events-none absolute inset-0 z-[70] flex items-center justify-center"
@@ -105,10 +108,18 @@ export default function TodayPage() {
                 </div>
               </motion.div>
             </motion.div>
-          ) : null}
-        </AnimatePresence>
-      }
+          </AnimatePresence>,
+          overlayRoot,
+        )
+      : null;
+
+  return (
+    <MobileScreen
+      eyebrow={humanDate()}
+      title={me.name.split(" ")[0] ?? me.name}
+      trailing={<AddHabitButton onAdd={addHabit} />}
     >
+      {celebrationOverlay}
       <section>
         <header className="mb-2 flex items-baseline justify-between px-0.5">
           <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
